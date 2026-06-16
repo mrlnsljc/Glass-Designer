@@ -1,3 +1,3 @@
-# Glass Designer
+Designer
 
 A browser-based, semi-3D design tool.
