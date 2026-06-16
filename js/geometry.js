@@ -67,8 +67,11 @@ export function panelBounds(project, margin = 8) {
     minX = Math.min(minX, e.ax, e.bx); maxX = Math.max(maxX, e.ax, e.bx);
     minZ = Math.min(minZ, e.az, e.bz); maxZ = Math.max(maxZ, e.az, e.bz);
   }
+  // Pad first, then derive w/d from the PADDED extents so the SVG viewBox matches
+  // where panels are actually drawn (otherwise lines fall outside the box).
+  const x0 = minX - margin, x1 = maxX + margin, z0 = minZ - margin, z1 = maxZ + margin;
   return {
-    minX: minX - margin, maxX: maxX + margin, minZ: minZ - margin, maxZ: maxZ + margin,
-    empty: false, w: (maxX - minX) || 1, d: (maxZ - minZ) || 1,
+    minX: x0, maxX: x1, minZ: z0, maxZ: z1,
+    empty: false, w: (x1 - x0) || 1, d: (z1 - z0) || 1,
   };
 }

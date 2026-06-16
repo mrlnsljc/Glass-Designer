@@ -17,7 +17,10 @@ export function planSVG(project, { selectedId = null, width = 280, interactive =
   const sx = (x) => pad + (x - b.minX) * scale;
   const sy = (z) => pad + (z - b.minZ) * scale; // +z downward
 
-  const out = [`<svg viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" class="plan-svg" xmlns="http://www.w3.org/2000/svg">`];
+  // width/height attributes give the SVG an intrinsic size, so print CSS can
+  // contain it with max-width/max-height (like an image). The editor thumbnail's
+  // CSS width:100% overrides these, so it still scales to its little box.
+  const out = [`<svg viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" width="${W.toFixed(0)}" height="${H.toFixed(0)}" class="plan-svg" xmlns="http://www.w3.org/2000/svg">`];
   out.push(`<rect x="1" y="1" width="${(W - 2).toFixed(1)}" height="${(H - 2).toFixed(1)}" rx="6" class="plan-bg"/>`);
 
   if (b.empty) {

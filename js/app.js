@@ -428,5 +428,18 @@ const num = (v, f = 0) => { const n = parseFloat(v); return Number.isFinite(n) ?
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  // Auto-update: when a freshly deployed service worker takes control, reload once
+  // so the new version shows up on its own (no manual hard-refresh needed).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading || !hadController) return; // skip the very first install (nothing to replace)
+    reloading = true;
+    window.location.reload();
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      setInterval(() => reg.update(), 60 * 60 * 1000); // check for updates hourly while open
+    }).catch(() => {});
+  });
 }

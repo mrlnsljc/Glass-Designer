@@ -1,12 +1,13 @@
 /* =============================================================================
    sw.js — service worker for offline + installable PWA.
 
-   • App shell (html/css/js/icons): precached on install, stale-while-revalidate.
+   • App shell (html/css/js/icons): NETWORK-FIRST when online so a fresh deploy
+     shows up immediately; cache is the offline fallback (precached on install).
    • Three.js from unpkg (CDN): cache-first runtime cache, so after the first
      online load the app keeps working with no connection.
    Bump CACHE_VERSION to force clients onto new assets.
    ============================================================================= */
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const SHELL = `grd-shell-${CACHE_VERSION}`;
 const CDN = `grd-cdn-${CACHE_VERSION}`;
 
@@ -58,12 +59,9 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).catch(() => caches.match('./index.html').then((r) => r || caches.match('./'))));
-    return;
-  }
+  if (req.mode === 'navigate') { e.respondWith(networkFirst(req, SHELL)); return; }
   if (isCDN(url)) { e.respondWith(cacheFirst(req, CDN)); return; }
-  if (url.origin === self.location.origin) { e.respondWith(staleWhileRevalidate(req, SHELL)); return; }
+  if (url.origin === self.location.origin) { e.respondWith(networkFirst(req, SHELL)); return; }
   e.respondWith(fetch(req).catch(() => caches.match(req)));
 });
 
@@ -78,9 +76,16 @@ async function cacheFirst(req, cacheName) {
   } catch (e) { return hit || Response.error(); }
 }
 
-async function staleWhileRevalidate(req, cacheName) {
+async function networkFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
-  const hit = await cache.match(req);
-  const net = fetch(req).then((res) => { if (res && res.ok) cache.put(req, res.clone()); return res; }).catch(() => null);
-  return hit || (await net) || Response.error();
+  try {
+    const res = await fetch(req);
+    if (res && res.ok) cache.put(req, res.clone());
+    return res;
+  } catch (e) {
+    const hit = await cache.match(req);
+    if (hit) return hit;
+    if (req.mode === 'navigate') return (await cache.match('./index.html')) || (await cache.match('./')) || Response.error();
+    return Response.error();
+  }
 }
