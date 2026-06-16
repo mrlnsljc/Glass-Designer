@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Glass Designer</title>
+  <meta name="description" content="Design glass railings and shower/enclosures in semi-3D: place panels on a blank canvas, spec glass finishes, price the job, and export a render + cut list." />
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="color-scheme" content="light" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Glass Designer" />
+
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- Three.js (no build step) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <button id="btnPanel" class="icon-btn only-mobile" title="Panels" aria-label="Toggle panel">☰</button>
+    <div class="brand"><span class="logo"></span><h1 id="title">Untitled Design</h1></div>
+    <div class="spacer"></div>
+    <button id="btnCam" class="btn" title="Switch isometric / 3D view">Iso</button>
+    <button id="btnLabels" class="btn on" title="Toggle panel labels">Labels</button>
+    <button id="btnFit" class="btn" title="Fit view">Fit</button>
+    <div class="menu-wrap">
+      <button id="btnMenu" class="btn btn--primary" title="File menu">File ▾</button>
+      <div id="menu" class="menu">
+        <button data-menu="new">＋ New project</button>
+        <button data-menu="open">📂 Open…</button>
+        <button data-menu="dup">⧉ Duplicate</button>
+        <hr>
+        <button data-menu="png">🖼 Export render (PNG)</button>
+        <button data-menu="jpeg">🖼 Export render (JPEG)</button>
+        <button data-menu="print">📄 Print / PDF quote</button>
+        <hr>
+        <button data-menu="backup">⭳ Save project to file (.json)</button>
+        <button data-menu="restore">⭱ Open project file…</button>
+        <button data-menu="delete" class="danger">🗑 Delete project</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside id="panel" class="panel">
+      <div id="controls" class="controls"><!-- built by ui.js --></div>
+      <div class="totals-wrap">
+        <div class="plan-thumb"><div id="planThumb"></div></div>
+        <div id="totals" class="totals"></div>
+      </div>
+    </aside>
+
+    <section class="viewport">
+      <div id="stage" class="stage"></div>
+      <div class="viewtools">
+        <button id="vtAdd" class="vt vt--primary" title="Add a glass panel">＋ Panel</button>
+        <div class="vt-seg">
+          <button id="vtMove" class="vt on" title="Move selected panel">Move</button>
+          <button id="vtRotate" class="vt" title="Rotate selected panel">Rotate</button>
+        </div>
+        <div class="vt-stampwrap">
+          <button id="vtStamp" class="vt" title="Stamp holes & cut-outs onto panels">Stamp ▾</button>
+          <div id="stampMenu" class="stamp-menu">
+            <button data-stamp="off" class="on">↩ Off (select / move)</button>
+            <button data-stamp="hole">⌀ Hole / Standoff</button>
+            <button data-stamp="hinge">▭ Hinge cut-out</button>
+            <button data-stamp="handle">⌀ Handle / Pull</button>
+            <button data-stamp="lock">▭ Lock / Latch</button>
+            <button data-stamp="notch">⌐ Corner notch</button>
+          </div>
+        </div>
+        <button id="vtSnap" class="vt on" title="Snap to 1 inch / 15°">Snap</button>
+      </div>
+      <div class="hint">Select a panel · drag the gizmo to move/rotate · scroll/pinch to zoom</div>
+    </section>
+  </main>
+
+  <div id="scrim" class="scrim"></div>
+  <div id="modal" class="modal"></div>
+  <input id="fileInput" type="file" accept="application/json,.json" hidden />
+
+  <noscript><p style="padding:2rem;text-align:center">This app needs JavaScript enabled.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
