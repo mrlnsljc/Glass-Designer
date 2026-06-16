@@ -369,8 +369,8 @@ function handleMenu(cmd) {
     case 'open': openProjectsModal(); break;
     case 'png': downloadImage(scene.snapshot({ scale: 2.5 }), state.project, 'png'); break;
     case 'jpeg': downloadImage(scene.snapshot({ scale: 2.5 }), state.project, 'jpeg'); break;
-    case 'print': printReport(state.project, scene.snapshot({ scale: 2 }), { pricing: true }); break;
-    case 'print-nopricing': printReport(state.project, scene.snapshot({ scale: 2 }), { pricing: false }); break;
+    case 'print': printReport(state.project, scene.snapshot({ scale: 2 }), { pricing: true, panelImages: scene.snapshotPanels({ scale: 2 }) }); break;
+    case 'print-nopricing': printReport(state.project, scene.snapshot({ scale: 2 }), { pricing: false, panelImages: scene.snapshotPanels({ scale: 2 }) }); break;
     case 'backup': {
       const blob = new Blob([store.exportJSON()], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);

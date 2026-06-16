@@ -236,7 +236,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; outline-
 /* ---- totals + plan thumbnail --------------------------------------------- */
 .totals-wrap { border-top: 1px solid var(--line); background: #fff; }
 .plan-thumb { padding: 8px 12px 0; }
-.plan-thumb #planThumb { display: flex; justify-content: center; }
+.plan-thumb #planThumb { display: flex; justify-content: center; align-items: center; max-height: 150px; overflow: hidden; }
 .totals { padding: 8px 14px 12px; }
 .tot-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 2px 0; color: var(--muted); }
 .tot-row b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -244,7 +244,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; outline-
 .tot-grand b { font-size: 17px; }
 
 /* ---- plan SVG (shared look with the report) ------------------------------ */
-.plan-svg { width: 100%; max-width: 280px; height: auto; }
+.plan-svg { max-width: 100%; max-height: 150px; width: auto; height: auto; display: block; }
 .plan-bg { fill: #f8fafc; stroke: #e2e8f0; stroke-width: 1; }
 .plan-empty { fill: #94a3b8; font-size: 11px; }
 .plan-panel { stroke-width: 5; stroke-linecap: round; transition: stroke-width .1s; }

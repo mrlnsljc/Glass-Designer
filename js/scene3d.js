@@ -497,32 +497,78 @@ export function snapshot({ scale = 2.5, clean = true, dims = true } = {}) {
   return url;
 }
 
-// Bake raw dimension numbers onto the inside of each glass panel (export only).
+// Bake raw dimension numbers onto one panel's glass; returns the temp meshes.
+function addPanelDims(group, p) {
+  const out = [];
+  const d = panelDims(p);
+  const y0 = project.options.baseShoe ? BASE_H : 0;
+  const halfT = (p.thickness || 0.5) / 2 + 0.2;
+  const th = Math.max(2.2, Math.min(7, Math.min(d.wBottom, d.hMax) * 0.16));
+  const add = (text, x, y, vert) => {
+    const m = makeDimText(text, th);
+    if (vert) m.rotation.z = Math.PI / 2;
+    m.position.set(x, y, halfT);
+    group.add(m); out.push(m);
+  };
+  // Bottom width + left height always. Tapered panels also label top width + right height.
+  add(len(d.wBottom), 0, y0 + th * 1.1, false);
+  add(len(d.hLeft), -d.wBottom / 2 + th * 1.1, y0 + d.hLeft / 2, true);
+  if (p.customShape) {
+    const topMidY = y0 + (d.hLeft + d.hRight) / 2;
+    add(len(d.wTop), 0, topMidY - th * 1.1, false);
+    add(len(d.hRight), d.wBottom / 2 - th * 1.1, y0 + d.hRight / 2, true);
+  }
+  return out;
+}
 function addDimLabels() {
   const out = [];
   if (!project) return out;
   for (const [id, e] of entries) {
     const p = project.panels.find((x) => x.id === id); if (!p) continue;
+    out.push(...addPanelDims(e.group, p));
+  }
+  return out;
+}
+const disposeDims = (arr) => arr.forEach((m) => { m.geometry.dispose(); m.material.map?.dispose(); m.material.dispose(); m.parent?.remove(m); });
+
+// One face-on PNG per panel (the PDF booklet): each panel alone, framed full-size.
+export function snapshotPanels({ scale = 2 } = {}) {
+  if (!project || !project.panels.length) return [];
+  const out = [];
+  const gv = grid.visible, sv = gizmo.visible, ld = labelRenderer.domElement.style.display;
+  grid.visible = false; gizmo.visible = false; labelRenderer.domElement.style.display = 'none';
+  for (const e of entries.values()) e.group.visible = false;
+
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -100000, 100000);
+  const aspect = (container.clientWidth || 800) / (container.clientHeight || 600);
+
+  project.panels.forEach((p, i) => {
+    const e = entries.get(p.id); if (!e) return;
+    e.group.visible = true;
+    const dims = addPanelDims(e.group, p);
     const d = panelDims(p);
     const y0 = project.options.baseShoe ? BASE_H : 0;
-    const halfT = (p.thickness || 0.5) / 2 + 0.2;
-    const th = Math.max(2.2, Math.min(7, Math.min(d.wBottom, d.hMax) * 0.16));
-    const add = (text, x, y, vert) => {
-      const m = makeDimText(text, th);
-      if (vert) m.rotation.z = Math.PI / 2;
-      m.position.set(x, y, halfT);
-      e.group.add(m); out.push(m);
-    };
-    // Bottom width + left height always. For tapered panels also label the top
-    // width and the right height (each side that differs).
-    add(len(d.wBottom), 0, y0 + th * 1.1, false);            // bottom edge
-    add(len(d.hLeft), -d.wBottom / 2 + th * 1.1, y0 + d.hLeft / 2, true); // left edge
-    if (p.customShape) {
-      const topMidY = y0 + (d.hLeft + d.hRight) / 2;
-      add(len(d.wTop), 0, topMidY - th * 1.1, false);        // top edge
-      add(len(d.hRight), d.wBottom / 2 - th * 1.1, y0 + d.hRight / 2, true); // right edge
-    }
-  }
+    const center = e.group.localToWorld(new THREE.Vector3(0, y0 + d.hMax / 2, 0));
+    const q = e.group.getWorldQuaternion(new THREE.Quaternion());
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+    cam.position.copy(center).addScaledVector(normal, 1000);
+    cam.up.set(0, 1, 0); cam.lookAt(center);
+    let halfW = (d.wMax / 2) * 1.16, halfH = (d.hMax / 2) * 1.2;
+    if (halfW / halfH < aspect) halfW = halfH * aspect; else halfH = halfW / aspect;
+    cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
+    cam.updateProjectionMatrix();
+
+    renderer.setPixelRatio(scale);
+    renderer.render(scene, cam);
+    out.push({ id: p.id, label: panelLabel(p, i), url: renderer.domElement.toDataURL('image/png') });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    disposeDims(dims);
+    e.group.visible = false;
+  });
+
+  for (const e of entries.values()) e.group.visible = true;
+  grid.visible = gv; gizmo.visible = sv; labelRenderer.domElement.style.display = ld;
+  resize();
   return out;
 }
 

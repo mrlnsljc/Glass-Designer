@@ -35,7 +35,7 @@ function triggerDownload(url, filename) {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
-export function printReport(project, renderDataURL, { pricing = true } = {}) {
+export function printReport(project, renderDataURL, { pricing = true, panelImages = [] } = {}) {
   const q = quote(project);
   const c = project.client || {};
   const dimOf = (p) => p.customShape ? `${len(p.width)}↔${len(p.widthTop ?? p.width)}` : len(p.width);
@@ -76,6 +76,11 @@ export function printReport(project, renderDataURL, { pricing = true } = {}) {
     ? `<section class="sheet">${head('3D view', true)}<div class="frame"><img src="${renderDataURL}" alt="3D render"></div></section>`
     : '';
   const planSheet = `<section class="sheet">${head('Top-down plan', !renderDataURL)}<div class="frame">${planSVG(project, { interactive: false, width: 760 })}</div></section>`;
+
+  // One full page per panel — a "booklet" you can flip through on the job.
+  const panelSheets = (panelImages || []).map((pi) =>
+    `<section class="sheet">${head('Panel ' + esc(pi.label), false)}<div class="frame frame--panel"><img src="${pi.url}" alt="${esc(pi.label)}"></div></section>`
+  ).join('');
   const scheduleSheet = `<section class="sheet">
       ${head('Panel schedule', false)}
       <table class="cut">
@@ -117,6 +122,7 @@ export function printReport(project, renderDataURL, { pricing = true } = {}) {
     .frame{text-align:center;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;padding:12px}
     .frame img,.frame svg{display:block;margin:0 auto;max-width:100%;max-height:7in;width:auto;height:auto}
     .frame img{background:#eef3f8;border-radius:6px}
+    .frame--panel img{max-height:8.6in}
     table.cut{width:100%;border-collapse:collapse;margin-top:6px}
     table.cut th,table.cut td{border:1px solid #d1d5db;padding:6px 8px;font-size:12px}
     table.cut th{background:#f3f4f6;text-align:left}
@@ -131,6 +137,7 @@ export function printReport(project, renderDataURL, { pricing = true } = {}) {
     ${renderSheet}
     ${planSheet}
     ${scheduleSheet}
+    ${panelSheets}
     <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),400));<\/script>
   </body></html>`;
 
