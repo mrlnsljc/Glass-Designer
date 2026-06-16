@@ -310,9 +310,9 @@ function wireHeader() {
 }
 
 const HINTS = {
-  select: 'Select tool · click to select · drag a panel on the floor, or drag a hole/cut-out on its glass',
-  move: 'Move tool · drag the gizmo arrows (incl. up/down for stairs) to position the panel',
-  rotate: 'Rotate tool · drag the ring to spin the selected panel',
+  select: 'Holes tool · drag a hole / cut-out to move it around on its glass (panels: use Move / Rotate)',
+  move: 'Move tool · click a panel, then drag the gizmo arrows (incl. up/down for stairs)',
+  rotate: 'Rotate tool · click a panel, then drag the ring to spin it',
 };
 const setHint = (t) => { const h = $('.hint'); if (h) h.textContent = t; };
 
@@ -328,7 +328,7 @@ function setTool(name) {
 }
 
 function setStamp(kind) {
-  if (kind === 'off') { setTool('select'); return; }
+  if (kind === 'off') { setTool('move'); return; }
   scene.setTool('stamp', kind);
   ['vtSelect', 'vtMove', 'vtRotate'].forEach((id) => $('#' + id).classList.remove('on'));
   const btn = $('#vtStamp');
@@ -338,7 +338,7 @@ function setStamp(kind) {
 }
 
 function wireViewTools() {
-  $('#vtAdd').addEventListener('click', () => { setTool('select'); store.addPanel(); renderControls(); renderScene({ fit: true }); });
+  $('#vtAdd').addEventListener('click', () => { setTool('move'); store.addPanel(); renderControls(); renderScene({ fit: true }); });
   $('#vtSelect').addEventListener('click', () => setTool('select'));
   $('#vtMove').addEventListener('click', () => setTool('move'));
   $('#vtRotate').addEventListener('click', () => setTool('rotate'));

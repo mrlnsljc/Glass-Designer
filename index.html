@@ -70,14 +70,14 @@
       <div class="viewtools">
         <button id="vtAdd" class="vt vt--primary" title="Add a glass panel">＋ Panel</button>
         <div class="vt-seg">
-          <button id="vtSelect" class="vt on" title="Select &amp; drag panels / holes / cut-outs">⬚ Select</button>
-          <button id="vtMove" class="vt" title="Move gizmo (incl. up/down)">Move</button>
-          <button id="vtRotate" class="vt" title="Rotate gizmo">Rotate</button>
+          <button id="vtMove" class="vt on" title="Move panel — gizmo (incl. up/down)">Move</button>
+          <button id="vtRotate" class="vt" title="Rotate panel — gizmo">Rotate</button>
+          <button id="vtSelect" class="vt" title="Edit holes / cut-outs: drag them around on the glass">✥ Holes</button>
         </div>
         <div class="vt-stampwrap">
           <button id="vtStamp" class="vt" title="Stamp holes & cut-outs onto panels">Stamp ▾</button>
           <div id="stampMenu" class="stamp-menu">
-            <button data-stamp="off" class="on">↩ Off (select / move)</button>
+            <button data-stamp="off" class="on">↩ Done stamping</button>
             <button data-stamp="hole">⌀ Hole / Standoff</button>
             <button data-stamp="hinge">▭ Hinge cut-out</button>
             <button data-stamp="handle">⌀ Handle / Pull</button>
@@ -87,7 +87,7 @@
         </div>
         <button id="vtSnap" class="vt on" title="Snap to 1 inch / 15°">Snap</button>
       </div>
-      <div class="hint">Select a panel · drag the gizmo to move/rotate · scroll/pinch to zoom</div>
+      <div class="hint">Click a panel to select · drag the gizmo to move/rotate · ✥ Holes tool drags cut-outs</div>
     </section>
   </main>
 

@@ -30,8 +30,8 @@ import { BASE_H, panelCorners, panelDims } from './geometry.js';
 
 let renderer, labelRenderer, scene, world, container;
 let orbit, gizmo, perspCam, orthoCam, activeCam;
-let grid, shadowPlane;
-let mode = 'iso', tool = 'select', stampKind = 'hole', snap = true, showLabels = true, showGrid = true;
+let grid;
+let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = true, showGrid = true;
 let needsRender = true, raf = 0;
 let project = null;
 let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
@@ -64,8 +64,7 @@ export function init(el) {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = false; // shadows off — they only confuse the glass reads
   el.appendChild(renderer.domElement);
 
   labelRenderer = new CSS2DRenderer();
@@ -78,17 +77,13 @@ export function init(el) {
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.background = makeBackdrop();
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa3ad, 0.95));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-  sun.position.set(180, 320, 160); sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  Object.assign(sun.shadow.camera, { near: 10, far: 1600, left: -500, right: 500, top: 500, bottom: -500 });
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa3ad, 1.05));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  sun.position.set(180, 320, 160);
   scene.add(sun);
-
-  // soft contact shadow catcher (grounds the glass; not a visible floor)
-  shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.ShadowMaterial({ opacity: 0.16 }));
-  shadowPlane.rotation.x = -Math.PI / 2; shadowPlane.position.y = 0; shadowPlane.receiveShadow = true;
-  scene.add(shadowPlane);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+  fill.position.set(-160, 120, -120);
+  scene.add(fill);
 
   grid = new THREE.GridHelper(480, 40, 0x9aa7b6, 0xc2cdd8);
   grid.material.transparent = true; grid.material.opacity = 0.5; grid.position.y = 0.02;
@@ -324,35 +319,25 @@ function onDown(e) {
   if (tool !== 'select' || downOnGizmo) return; // gizmo / orbit handle it
   setNDC(e); raycaster.setFromCamera(ptr, activeCam);
 
-  // a placed feature first (they sit just in front of the glass)
+  // The Select tool grabs ONLY placed holes / cut-outs. Panels are moved with the
+  // Move/Rotate gizmo, so dragging a panel body (or empty space) just orbits.
   const fhit = featurePickMeshes.length ? raycaster.intersectObjects(featurePickMeshes, false)[0] : null;
-  if (fhit) {
-    const { featureId, panelId } = fhit.object.userData;
-    const en = entries.get(panelId); if (!en) return;
-    const mark = (en.featureMarks || []).find((m) => m.userData.featureId === featureId);
-    const panel = project.panels.find((p) => p.id === panelId);
-    const feat = panel && (panel.features || []).find((f) => f.id === featureId);
-    const q = en.group.getWorldQuaternion(new THREE.Quaternion());
-    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, fhit.point);
-    const local0 = en.glass.worldToLocal(fhit.point.clone());
-    drag = {
-      type: 'feature', panelId, featureId, glass: en.glass, mark, y0: mark.userData.y0, plane,
-      offX: (feat ? feat.x : local0.x) - local0.x, offY: (feat ? feat.y : local0.y) - local0.y, moved: false,
-    };
-    orbit.enabled = false; return;
-  }
-
-  // otherwise a panel body -> free-drag on the ground plane
-  const ghit = raycastGlass();
-  if (ghit) {
-    const panelId = ghit.object.userData.panelId;
-    const en = entries.get(panelId); if (!en) return;
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, en.group.position.y, 0));
-    raycaster.ray.intersectPlane(plane, _hitPt);
-    drag = { type: 'panel', panelId, group: en.group, plane, offX: en.group.position.x - _hitPt.x, offZ: en.group.position.z - _hitPt.z, moved: false };
-    orbit.enabled = false;
-  }
+  if (!fhit) return;
+  const { featureId, panelId } = fhit.object.userData;
+  const panel = project.panels.find((p) => p.id === panelId);
+  if (!panel || panel.locked) return; // locked panel: its features are frozen too (a click still selects)
+  const en = entries.get(panelId); if (!en) return;
+  const mark = (en.featureMarks || []).find((m) => m.userData.featureId === featureId);
+  const feat = (panel.features || []).find((f) => f.id === featureId);
+  const q = en.group.getWorldQuaternion(new THREE.Quaternion());
+  const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, fhit.point);
+  const local0 = en.glass.worldToLocal(fhit.point.clone());
+  drag = {
+    type: 'feature', panelId, featureId, glass: en.glass, mark, y0: mark.userData.y0, plane,
+    offX: (feat ? feat.x : local0.x) - local0.x, offY: (feat ? feat.y : local0.y) - local0.y, moved: false,
+  };
+  orbit.enabled = false;
 }
 
 function onMove(e) {
@@ -360,37 +345,26 @@ function onMove(e) {
   setNDC(e); raycaster.setFromCamera(ptr, activeCam);
   if (!raycaster.ray.intersectPlane(drag.plane, _hitPt)) return;
   if (downXY && Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 3) drag.moved = true;
-  if (drag.type === 'feature') {
-    const local = drag.glass.worldToLocal(_hitPt.clone());
-    const panel = project.panels.find((p) => p.id === drag.panelId);
-    const d = panel ? panelDims(panel) : { wMax: 36, hMax: 42 };
-    let x = clamp(local.x + drag.offX, -d.wMax / 2 + 0.5, d.wMax / 2 - 0.5);
-    let y = clamp(local.y + drag.offY, 0.5, d.hMax - 0.5);
-    if (snap) { x = Math.round(x * 4) / 4; y = Math.round(y * 4) / 4; }
-    drag.mark.position.set(x, drag.y0 + y, drag.mark.position.z);
-    if (featureMoveCb) featureMoveCb(drag.panelId, drag.featureId, { x: round(x), y: round(y) }, false);
-  } else {
-    let x = _hitPt.x + drag.offX, z = _hitPt.z + drag.offZ;
-    if (snap) { x = Math.round(x * 4) / 4; z = Math.round(z * 4) / 4; }
-    drag.group.position.x = x; drag.group.position.z = z;
-    if (transformCb) transformCb(drag.panelId, { x: round(x), z: round(z) }, false);
-  }
+  // Select tool only drags features, confined to the panel face (local X/Y).
+  const local = drag.glass.worldToLocal(_hitPt.clone());
+  const panel = project.panels.find((p) => p.id === drag.panelId);
+  const d = panel ? panelDims(panel) : { wMax: 36, hMax: 42 };
+  let x = clamp(local.x + drag.offX, -d.wMax / 2 + 0.5, d.wMax / 2 - 0.5);
+  let y = clamp(local.y + drag.offY, 0.5, d.hMax - 0.5);
+  if (snap) { x = Math.round(x * 4) / 4; y = Math.round(y * 4) / 4; }
+  drag.mark.position.set(x, drag.y0 + y, drag.mark.position.z);
+  if (featureMoveCb) featureMoveCb(drag.panelId, drag.featureId, { x: round(x), y: round(y) }, false);
   needsRender = true;
 }
 
 function onUp(e) {
   if (drag) {
     const dr = drag; drag = null; downXY = null; orbit.enabled = true;
-    if (dr.type === 'feature') {
-      if (dr.moved) {
-        const panel = project.panels.find((p) => p.id === dr.panelId);
-        const f = panel && (panel.features || []).find((x) => x.id === dr.featureId);
-        if (f && featureMoveCb) featureMoveCb(dr.panelId, dr.featureId, { x: round(f.x), y: round(f.y) }, true);
-      } else if (featureSelectCb) featureSelectCb(dr.panelId, dr.featureId);
-    } else {
-      if (dr.moved) commitTransform(dr.panelId, true);
-      else if (selectCb) selectCb(dr.panelId);
-    }
+    if (dr.moved) {
+      const panel = project.panels.find((p) => p.id === dr.panelId);
+      const f = panel && (panel.features || []).find((x) => x.id === dr.featureId);
+      if (f && featureMoveCb) featureMoveCb(dr.panelId, dr.featureId, { x: round(f.x), y: round(f.y) }, true);
+    } else if (featureSelectCb) featureSelectCb(dr.panelId, dr.featureId);
     needsRender = true; return;
   }
 
@@ -532,15 +506,22 @@ function addDimLabels() {
     const d = panelDims(p);
     const y0 = project.options.baseShoe ? BASE_H : 0;
     const halfT = (p.thickness || 0.5) / 2 + 0.2;
-    const th = Math.max(2.2, Math.min(7, Math.min(d.wBottom, d.hMax) * 0.18));
-    // width along the bottom, height up the left side (vertical)
-    const wlab = makeDimText(len(d.wBottom), th);
-    wlab.position.set(0, y0 + th * 1.1, halfT);
-    e.group.add(wlab); out.push(wlab);
-    const hlab = makeDimText(len(d.hLeft), th);
-    hlab.rotation.z = Math.PI / 2;
-    hlab.position.set(-d.wBottom / 2 + th * 1.1, y0 + d.hLeft / 2, halfT);
-    e.group.add(hlab); out.push(hlab);
+    const th = Math.max(2.2, Math.min(7, Math.min(d.wBottom, d.hMax) * 0.16));
+    const add = (text, x, y, vert) => {
+      const m = makeDimText(text, th);
+      if (vert) m.rotation.z = Math.PI / 2;
+      m.position.set(x, y, halfT);
+      e.group.add(m); out.push(m);
+    };
+    // Bottom width + left height always. For tapered panels also label the top
+    // width and the right height (each side that differs).
+    add(len(d.wBottom), 0, y0 + th * 1.1, false);            // bottom edge
+    add(len(d.hLeft), -d.wBottom / 2 + th * 1.1, y0 + d.hLeft / 2, true); // left edge
+    if (p.customShape) {
+      const topMidY = y0 + (d.hLeft + d.hRight) / 2;
+      add(len(d.wTop), 0, topMidY - th * 1.1, false);        // top edge
+      add(len(d.hRight), d.wBottom / 2 - th * 1.1, y0 + d.hRight / 2, true); // right edge
+    }
   }
   return out;
 }
