@@ -47,6 +47,7 @@
         <button data-menu="png">🖼 Export render (PNG)</button>
         <button data-menu="jpeg">🖼 Export render (JPEG)</button>
         <button data-menu="print">📄 Print / PDF quote</button>
+        <button data-menu="print-nopricing">📄 Print / PDF — design only (no pricing)</button>
         <hr>
         <button data-menu="backup">⭳ Save project to file (.json)</button>
         <button data-menu="restore">⭱ Open project file…</button>
@@ -69,8 +70,9 @@
       <div class="viewtools">
         <button id="vtAdd" class="vt vt--primary" title="Add a glass panel">＋ Panel</button>
         <div class="vt-seg">
-          <button id="vtMove" class="vt on" title="Move selected panel">Move</button>
-          <button id="vtRotate" class="vt" title="Rotate selected panel">Rotate</button>
+          <button id="vtSelect" class="vt on" title="Select &amp; drag panels / holes / cut-outs">⬚ Select</button>
+          <button id="vtMove" class="vt" title="Move gizmo (incl. up/down)">Move</button>
+          <button id="vtRotate" class="vt" title="Rotate gizmo">Rotate</button>
         </div>
         <div class="vt-stampwrap">
           <button id="vtStamp" class="vt" title="Stamp holes & cut-outs onto panels">Stamp ▾</button>

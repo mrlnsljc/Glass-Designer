@@ -190,6 +190,11 @@ function optionsSection(p) {
   const o = p.options;
   const opt = (key, label) => `<label class="chk"><input type="checkbox" data-opt="${key}" ${o[key] ? 'checked' : ''}> ${label}</label>`;
   return section('options', 'View &amp; hardware mounts', `
+    <label class="fld"><span>Dimension units</span>
+      <select data-opt-units>
+        <option value="ftin" ${o.units !== 'inch' ? 'selected' : ''}>Feet + inches (3' 6")</option>
+        <option value="inch" ${o.units === 'inch' ? 'selected' : ''}>Inches, 3 decimals (42.000")</option>
+      </select></label>
     <div class="opts">
       ${opt('showGrid', 'Reference grid')}
       ${opt('showLabels', 'Panel labels')}

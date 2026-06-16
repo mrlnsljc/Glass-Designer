@@ -43,6 +43,8 @@ export const makePanel = (over = {}) => ({
 /** Backfill new fields on older/imported projects so the app never trips. */
 function normalize(p) {
   if (!p) return p;
+  p.options = p.options || {};
+  if (p.options.units == null) p.options.units = 'ftin';
   p.pricing = p.pricing || defaultPricing();
   if (!p.pricing.featureCosts) p.pricing.featureCosts = defaultFeatureCosts();
   if (p.pricing.holeCost != null && p.pricing.featureCosts.hole == null) p.pricing.featureCosts.hole = p.pricing.holeCost;
@@ -73,7 +75,7 @@ export function newProject(name = 'Untitled Design') {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     defaults: { width: 36, height: 42, thickness: 0.5, glassType: 'clear' },
-    options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, baseShoe: false, topRail: false },
+    options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, baseShoe: false, topRail: false, units: 'ftin' },
     panels: [], // blank canvas
     hardware: [], // bill of materials
     pricing: defaultPricing(),
@@ -223,6 +225,14 @@ export function updateFeature(panelId, featId, patch) {
 export function removeFeature(panelId, featId) {
   const p = findPanel(panelId); if (!p) return;
   p.features = (p.features || []).filter((x) => x.id !== featId); emit();
+}
+
+/** Live feature reposition from the Select-tool drag. `save` persists (drag end). */
+export function setFeaturePos(panelId, featId, x, y, save = true) {
+  const p = findPanel(panelId); if (!p) return;
+  const f = (p.features || []).find((z) => z.id === featId); if (!f) return;
+  f.x = x; f.y = y;
+  if (save) emit(); else subscribers.forEach((fn) => fn(state.project));
 }
 
 // ---- hardware bill of materials -------------------------------------------

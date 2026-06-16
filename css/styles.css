@@ -205,7 +205,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; outline-
 .pc-feats { border-top: 1px dashed var(--line); padding-top: 7px; margin-top: 1px; }
 .feats-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
 .feats-hint { font-size: 11px; color: var(--muted); margin: 2px 0; line-height: 1.45; }
-.feat-row { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; flex-wrap: wrap; }
+.feat-row { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; flex-wrap: wrap; padding: 3px; border-radius: 6px; border: 1px solid transparent; }
+.feat-row--sel { background: #eff5ff; border-color: var(--accent); }
 .feat-tag { flex: none; font-size: 10px; font-weight: 700; color: #fff; background: #475569; border-radius: 5px; padding: 3px 6px; }
 .fnum { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--muted); }
 .fnum > span { flex: none; font-weight: 600; }

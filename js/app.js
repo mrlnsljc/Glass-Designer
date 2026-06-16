@@ -13,7 +13,7 @@ import { state, emit } from './state.js';
 import * as scene from './scene3d.js';
 import { controlsHTML, totalsHTML } from './ui.js';
 import { planSVG } from './planView.js';
-import { quote, money, panelCost } from './pricing.js';
+import { quote, money, panelCost, setUnitMode } from './pricing.js';
 import { makeFeature, featureType } from './features.js';
 import { allLibraries, saveCustomItem } from './hardware.js';
 import { downloadImage, printReport } from './exporter.js';
@@ -32,6 +32,8 @@ function boot() {
   scene.onSelect(onScenePick);
   scene.onTransform(onSceneTransform);
   scene.onStamp(onSceneStamp);
+  scene.onFeatureMove(onSceneFeatureMove);
+  scene.onFeatureSelect(onSceneFeatureSelect);
 
   wireHeader(); wireViewTools(); wireControls();
 
@@ -48,6 +50,7 @@ function renderControls() {
   renderTotals(); renderPlan();
 }
 function renderScene({ fit = false } = {}) {
+  setUnitMode(state.project.options.units);
   scene.render(state.project);
   scene.select(state.selectedPanelId);
   if (fit) scene.fit();
@@ -123,6 +126,11 @@ function onControlInput(e) {
 
 function onControlChange(e) {
   const el = e.target;
+  if (el.dataset.optUnits !== undefined) {
+    state.project.options.units = el.value; emit();
+    setUnitMode(el.value); renderScene();
+    return;
+  }
   if (el.dataset.opt) {
     state.project.options[el.dataset.opt] = el.checked; emit();
     renderScene();
@@ -204,6 +212,27 @@ function onSceneStamp(panelId, kind, x, y) {
   renderControls(); renderScene();
 }
 
+// ---- dragging / selecting a placed feature with the Select tool ------------
+const round = (n) => Math.round((n || 0) * 100) / 100;
+function onSceneFeatureMove(panelId, featId, pos, save) {
+  store.setFeaturePos(panelId, featId, pos.x, pos.y, save);
+  const panel = store.findPanel(panelId);
+  const row = cardFor(panelId)?.querySelector(`.feat-row[data-feat="${featId}"]`);
+  if (row && panel) {
+    const set = (f, v) => { const el = row.querySelector(`input[data-field="${f}"]`); if (el && document.activeElement !== el) el.value = v; };
+    set('feat.fromLeft', round(panel.width / 2 + pos.x));
+    set('feat.fromBottom', round(pos.y));
+  }
+  if (save) renderControls();
+}
+function onSceneFeatureSelect(panelId, featId) {
+  state.selectedPanelId = panelId;
+  scene.select(panelId);
+  renderControls();
+  const row = cardFor(panelId)?.querySelector(`.feat-row[data-feat="${featId}"]`);
+  if (row) { row.classList.add('feat-row--sel'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+}
+
 // ---- quick-add templates ---------------------------------------------------
 function addRun() {
   const d = state.project.defaults, gap = 2, w = d.width;
@@ -280,27 +309,39 @@ function wireHeader() {
   $('#fileInput').addEventListener('change', onFileChosen);
 }
 
-const DEFAULT_HINT = 'Select a panel · drag the gizmo to move/rotate · scroll/pinch to zoom';
+const HINTS = {
+  select: 'Select tool · click to select · drag a panel on the floor, or drag a hole/cut-out on its glass',
+  move: 'Move tool · drag the gizmo arrows (incl. up/down for stairs) to position the panel',
+  rotate: 'Rotate tool · drag the ring to spin the selected panel',
+};
 const setHint = (t) => { const h = $('.hint'); if (h) h.textContent = t; };
 
+/** Switch the active manipulation tool and sync the toolbar. */
+function setTool(name) {
+  scene.setTool(name);
+  $('#vtSelect').classList.toggle('on', name === 'select');
+  $('#vtMove').classList.toggle('on', name === 'move');
+  $('#vtRotate').classList.toggle('on', name === 'rotate');
+  $('#vtStamp').classList.remove('on'); $('#vtStamp').textContent = 'Stamp ▾';
+  $$('#stampMenu [data-stamp]').forEach((x) => x.classList.toggle('on', x.dataset.stamp === 'off'));
+  setHint(HINTS[name] || HINTS.select);
+}
+
 function setStamp(kind) {
+  if (kind === 'off') { setTool('select'); return; }
+  scene.setTool('stamp', kind);
+  ['vtSelect', 'vtMove', 'vtRotate'].forEach((id) => $('#' + id).classList.remove('on'));
   const btn = $('#vtStamp');
-  if (kind === 'off') {
-    scene.setInteraction('select');
-    btn.classList.remove('on'); btn.textContent = 'Stamp ▾'; setHint(DEFAULT_HINT);
-  } else {
-    scene.setInteraction('stamp', kind);
-    btn.classList.add('on'); btn.textContent = 'Stamp: ' + featureType(kind).short;
-    setHint(`Click a panel to place a ${featureType(kind).name}`);
-  }
+  btn.classList.add('on'); btn.textContent = 'Stamp: ' + featureType(kind).short;
+  setHint(`Click a panel to place a ${featureType(kind).name}`);
   $$('#stampMenu [data-stamp]').forEach((x) => x.classList.toggle('on', x.dataset.stamp === kind));
 }
 
 function wireViewTools() {
-  $('#vtAdd').addEventListener('click', () => { setStamp('off'); store.addPanel(); renderControls(); renderScene({ fit: true }); });
-  const move = $('#vtMove'), rot = $('#vtRotate');
-  move.addEventListener('click', () => { setStamp('off'); scene.setGizmoMode('translate'); move.classList.add('on'); rot.classList.remove('on'); });
-  rot.addEventListener('click', () => { setStamp('off'); scene.setGizmoMode('rotate'); rot.classList.add('on'); move.classList.remove('on'); });
+  $('#vtAdd').addEventListener('click', () => { setTool('select'); store.addPanel(); renderControls(); renderScene({ fit: true }); });
+  $('#vtSelect').addEventListener('click', () => setTool('select'));
+  $('#vtMove').addEventListener('click', () => setTool('move'));
+  $('#vtRotate').addEventListener('click', () => setTool('rotate'));
   $('#vtSnap').addEventListener('click', () => {
     state.project.options.snap = !state.project.options.snap; emit();
     scene.setSnap(state.project.options.snap); renderHeader();
@@ -328,7 +369,8 @@ function handleMenu(cmd) {
     case 'open': openProjectsModal(); break;
     case 'png': downloadImage(scene.snapshot({ scale: 2.5 }), state.project, 'png'); break;
     case 'jpeg': downloadImage(scene.snapshot({ scale: 2.5 }), state.project, 'jpeg'); break;
-    case 'print': printReport(state.project, scene.snapshot({ scale: 2 })); break;
+    case 'print': printReport(state.project, scene.snapshot({ scale: 2 }), { pricing: true }); break;
+    case 'print-nopricing': printReport(state.project, scene.snapshot({ scale: 2 }), { pricing: false }); break;
     case 'backup': {
       const blob = new Blob([store.exportJSON()], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);

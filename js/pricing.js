@@ -49,6 +49,16 @@ export function quote(project) {
 export const money = (n) =>
   '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// ---- display units ---------------------------------------------------------
+// 'ftin' -> 3' 6" ;  'inch' -> 42.000"  (set from project.options.units)
+let unitMode = 'ftin';
+export function setUnitMode(m) { unitMode = (m === 'inch') ? 'inch' : 'ftin'; }
+export function getUnitMode() { return unitMode; }
+/** Format a length for display, honouring the current unit mode. */
+export function len(inches) {
+  return unitMode === 'inch' ? `${(inches || 0).toFixed(3)}"` : ftIn(inches);
+}
+
 /** inches -> feet'inches" display, e.g. 42 -> 3' 6" */
 export function ftIn(inches) {
   const sign = inches < 0 ? '-' : '';

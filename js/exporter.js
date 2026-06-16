@@ -7,7 +7,7 @@
                         desktop and iOS — no extra library needed).
    ============================================================================= */
 
-import { quote, money, ftIn, areaSqft } from './pricing.js';
+import { quote, money, len, areaSqft } from './pricing.js';
 import { glassType } from './glassTypes.js';
 import { libraryName } from './hardware.js';
 import { planSVG } from './planView.js';
@@ -35,30 +35,33 @@ function triggerDownload(url, filename) {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
-export function printReport(project, renderDataURL) {
+export function printReport(project, renderDataURL, { pricing = true } = {}) {
   const q = quote(project);
   const c = project.client || {};
+  const dimOf = (p) => p.customShape ? `${len(p.width)}↔${len(p.widthTop ?? p.width)}` : len(p.width);
+  const htOf = (p) => p.customShape ? `${len(p.height)}↕${len(p.heightRight ?? p.height)}` : len(p.height);
   const rows = q.rows.map((r) => {
     const gt = glassType(r.panel.glassType);
     return `<tr>
       <td class="c">${esc(r.code)}</td>
-      <td class="c">${ftIn(r.panel.width)}</td>
-      <td class="c">${ftIn(r.panel.height)}</td>
+      <td class="c">${dimOf(r.panel)}</td>
+      <td class="c">${htOf(r.panel)}</td>
       <td class="c">${(r.panel.thickness || 0.5)}"</td>
       <td class="c">${areaSqft(r.panel).toFixed(2)}</td>
       <td>${gt.name}</td>
+      <td class="c">${r.panel.y > 0 ? len(r.panel.y) : '—'}</td>
       <td class="c">${(r.panel.features || []).length}</td>
-      <td class="r">${money(r.cost.total)}</td>
+      ${pricing ? `<td class="r">${money(r.cost.total)}</td>` : ''}
     </tr>`;
   }).join('');
 
   const hwRows = q.hardwareRows.map((r) => `<tr>
       <td>${esc(r.line.name)}</td><td>${esc(libraryName(r.line.lib))}</td>
-      <td class="c">${r.line.qty}</td><td class="r">${money(r.line.price)}</td><td class="r">${money(r.total)}</td>
+      <td class="c">${r.line.qty}</td>${pricing ? `<td class="r">${money(r.line.price)}</td><td class="r">${money(r.total)}</td>` : ''}
     </tr>`).join('');
 
   const html = `<!doctype html><html><head><meta charset="utf-8">
-  <title>${esc(project.name)} — Quote</title>
+  <title>${esc(project.name)} — ${pricing ? 'Quote' : 'Design'}</title>
   <style>
     *{box-sizing:border-box}
     body{font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;color:#111827;margin:28px}
@@ -81,7 +84,7 @@ export function printReport(project, renderDataURL) {
     @media print{body{margin:12mm}}
   </style></head><body>
     <div class="head">
-      <div><h1>${esc(project.name)}</h1><div class="muted">Glass Quote · ${stamp()}</div></div>
+      <div><h1>${esc(project.name)}</h1><div class="muted">Glass ${pricing ? 'Quote' : 'Design'} · ${stamp()}</div></div>
       <table class="client muted">
         ${c.name ? `<tr><td><b>Client</b></td><td>${esc(c.name)}</td></tr>` : ''}
         ${c.phone ? `<tr><td>Phone</td><td>${esc(c.phone)}</td></tr>` : ''}
@@ -96,26 +99,26 @@ export function printReport(project, renderDataURL) {
     <table class="cut">
       <thead><tr>
         <th class="c">#</th><th class="c">Width</th><th class="c">Height</th><th class="c">Thk</th>
-        <th class="c">Sq Ft</th><th>Glass</th><th class="c">Cut-outs</th><th class="r">Cost</th>
+        <th class="c">Sq Ft</th><th>Glass</th><th class="c">Elev</th><th class="c">Cut-outs</th>${pricing ? '<th class="r">Cost</th>' : ''}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
     ${hwRows ? `<h3 style="margin:18px 0 4px;font-size:14px">Hardware</h3>
     <table class="cut">
-      <thead><tr><th>Item</th><th>Library</th><th class="c">Qty</th><th class="r">Unit</th><th class="r">Total</th></tr></thead>
+      <thead><tr><th>Item</th><th>Library</th><th class="c">Qty</th>${pricing ? '<th class="r">Unit</th><th class="r">Total</th>' : ''}</tr></thead>
       <tbody>${hwRows}</tbody>
     </table>` : ''}
     <table class="totals">
       <tr><td>Panels</td><td class="r">${q.panelCount}</td></tr>
       <tr><td>Total glass area</td><td class="r">${q.totalArea.toFixed(2)} sq ft</td></tr>
       <tr><td>Holes / cut-outs</td><td class="r">${q.totalFeatures}</td></tr>
-      <tr><td>Glass &amp; fabrication</td><td class="r">${money(q.glassSubtotal)}</td></tr>
+      ${pricing ? `<tr><td>Glass &amp; fabrication</td><td class="r">${money(q.glassSubtotal)}</td></tr>
       ${q.hardwareSubtotal ? `<tr><td>Hardware</td><td class="r">${money(q.hardwareSubtotal)}</td></tr>` : ''}
       ${q.markup ? `<tr><td>Markup (${project.pricing.markupPct}%)</td><td class="r">${money(q.markup)}</td></tr>` : ''}
-      <tr class="grand"><td>Total</td><td class="r">${money(q.total)}</td></tr>
+      <tr class="grand"><td>Total</td><td class="r">${money(q.total)}</td></tr>` : ''}
     </table>
     ${c.notes ? `<p class="muted"><b>Notes:</b> ${esc(c.notes)}</p>` : ''}
-    <p class="muted" style="margin-top:24px;font-size:11px">Estimate only. Final pricing subject to site measure and supplier confirmation.</p>
+    ${pricing ? '<p class="muted" style="margin-top:24px;font-size:11px">Estimate only. Final pricing subject to site measure and supplier confirmation.</p>' : ''}
     <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),350));<\/script>
   </body></html>`;
 

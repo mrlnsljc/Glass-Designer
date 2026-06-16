@@ -13,7 +13,7 @@
      ground the glass — no deck, floor or house.
 
    Public API:
-     init(el); render(project); setCamera('iso'|'3d'); setGizmoMode('translate'
+     init(el); render(project); setCamera('iso'|'3d'); setTool('select'|'move'
      |'rotate'); setSnap(bool); setLabels(bool); setGrid(bool); select(id);
      fit(); snapshot(); onSelect(cb); onTransform(cb)
    ============================================================================= */
@@ -25,18 +25,19 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { glassType } from './glassTypes.js';
 import { featureType } from './features.js';
-import { panelLabel, ftIn } from './pricing.js';
+import { panelLabel, len, getUnitMode } from './pricing.js';
 import { BASE_H, panelCorners, panelDims } from './geometry.js';
 
 let renderer, labelRenderer, scene, world, container;
 let orbit, gizmo, perspCam, orthoCam, activeCam;
 let grid, shadowPlane;
-let mode = 'iso', gizmoMode = 'translate', snap = true, showLabels = true, showGrid = true;
-let interaction = 'select', stampKind = 'hole';
+let mode = 'iso', tool = 'select', stampKind = 'hole', snap = true, showLabels = true, showGrid = true;
 let needsRender = true, raf = 0;
 let project = null;
-let selectCb = null, transformCb = null, stampCb = null;
-let draggingId = null, selectedId = null;
+let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
+let draggingId = null, selectedId = null, selectedFeatureId = null;
+let featurePickMeshes = [];
+let drag = null; // active direct-manipulation drag (select tool)
 
 const entries = new Map(); // panelId -> { group, glass, edges, chip, sig }
 const contentBox = new THREE.Box3();
@@ -120,8 +121,9 @@ export function init(el) {
   world = new THREE.Group();
   scene.add(world);
 
-  renderer.domElement.addEventListener('pointerdown', onDown);
-  renderer.domElement.addEventListener('pointerup', onUp);
+  renderer.domElement.addEventListener('pointerdown', onDown, true); // capture: decide before OrbitControls
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
   new ResizeObserver(resize).observe(el);
   loop();
 }
@@ -161,6 +163,13 @@ export function render(proj) {
     disposeGroup(e.group); world.remove(e.group); entries.delete(id);
     if (gizmo.object === e.group) gizmo.detach();
   }
+  // rebuild the feature pick-list (transparent hit targets) for click/drag
+  featurePickMeshes = [];
+  for (const e of entries.values()) {
+    for (const m of (e.featureMarks || [])) {
+      for (const ch of m.children) if (ch.userData && ch.userData.featureHit) featurePickMeshes.push(ch);
+    }
+  }
   refreshSelection();
   recomputeContentBox();
   setSnap(snap);
@@ -169,7 +178,7 @@ export function render(proj) {
 
 const signature = (p, o, i) =>
   [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.customShape, p.glassType,
-    o.baseShoe, o.topRail, showLabels, panelLabel(p, i),
+    o.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i),
     (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}`).join(',')].join('|');
 
 function glassGeometry(p) {
@@ -206,7 +215,7 @@ function buildPanel(entry, p, i, o) {
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), entry.normalEdgeMat);
   edges.position.copy(glass.position); g.add(edges); entry.edges = edges;
 
-  addFeatures(g, p, y0);
+  entry.featureMarks = addFeatures(g, p, y0);
 
   if (o.topRail) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(d.wTop + 1, 1.8, 2.4),
@@ -219,8 +228,8 @@ function buildPanel(entry, p, i, o) {
     el.className = 'panel-chip';
     el.style.setProperty('--chip', '#' + tint.render.color.toString(16).padStart(6, '0'));
     const fcount = (p.features || []).length;
-    const dims = p.customShape ? `${ftIn(d.wBottom)}↔${ftIn(d.wTop)} × ${ftIn(d.hLeft)}↕${ftIn(d.hRight)}` : `${ftIn(d.wBottom)} × ${ftIn(d.hLeft)}`;
-    el.innerHTML = `<b>${escapeHTML(panelLabel(p, i))}</b> ${dims}<span>${tint.short}${(p.y > 0) ? ' · ↑' + ftIn(p.y) : ''}${fcount ? ' · ' + fcount + '◳' : ''}${p.locked ? ' · 🔒' : ''}</span>`;
+    const dims = p.customShape ? `${len(d.wBottom)}↔${len(d.wTop)} × ${len(d.hLeft)}↕${len(d.hRight)}` : `${len(d.wBottom)} × ${len(d.hLeft)}`;
+    el.innerHTML = `<b>${escapeHTML(panelLabel(p, i))}</b> ${dims}<span>${tint.short}${(p.y > 0) ? ' · ↑' + len(p.y) : ''}${fcount ? ' · ' + fcount + '◳' : ''}${p.locked ? ' · 🔒' : ''}</span>`;
     const chip = new CSS2DObject(el);
     chip.position.set(0, y0 + d.hMax / 2, (p.thickness || 0.5) / 2 + 0.2);
     g.add(chip); entry.chip = chip;
@@ -230,21 +239,28 @@ function buildPanel(entry, p, i, o) {
 const featFill = new THREE.MeshBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
 const featInk = new THREE.MeshBasicMaterial({ color: 0x1f2937, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
 const featLine = new THREE.LineBasicMaterial({ color: 0x111827 });
+const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
 
+// Returns the array of feature "mark" groups (each tagged for picking/dragging).
 function addFeatures(g, p, y0) {
+  const marks = [];
   const halfT = (p.thickness || 0.5) / 2 + 0.06;
   for (const f of (p.features || [])) {
     const t = featureType(f.kind);
+    const ink = featInk;
     const mark = new THREE.Group();
     mark.position.set(f.x, y0 + f.y, 0); // f.y is height above the panel base
+    mark.userData = { featureId: f.id, panelId: p.id, y0 };
+    let hitGeo;
     if (t.shape === 'circle') {
       const r = (f.d || t.d) / 2;
       for (const z of [halfT, -halfT]) {
-        const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.6, r, 24), featInk);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.6, r, 24), ink);
         ring.position.z = z; mark.add(ring);
       }
       const bore = new THREE.Mesh(new THREE.CircleGeometry(r * 0.6, 24), featFill);
       bore.position.z = halfT; mark.add(bore);
+      hitGeo = new THREE.CircleGeometry(Math.max(r, 2.4), 16);
     } else {
       const w = f.w || t.w, h = f.h || t.h;
       for (const z of [halfT, -halfT]) {
@@ -253,9 +269,16 @@ function addFeatures(g, p, y0) {
       }
       const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, h)), featLine);
       outline.position.z = halfT; mark.add(outline);
+      hitGeo = new THREE.PlaneGeometry(Math.max(w, 3), Math.max(h, 3));
     }
+    const hit = new THREE.Mesh(hitGeo, hitMat);
+    hit.position.z = halfT + 0.05;
+    hit.userData = { featureId: f.id, panelId: p.id, featureHit: true };
+    mark.add(hit);
     g.add(mark);
+    marks.push(mark);
   }
+  return marks;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,42 +296,123 @@ function refreshSelection() {
   }
   const e = selectedId ? entries.get(selectedId) : null;
   const panel = selectedId && project ? project.panels.find((p) => p.id === selectedId) : null;
-  if (interaction === 'select' && e && panel && !panel.locked) { gizmo.attach(e.group); applyMode(); }
+  if ((tool === 'move' || tool === 'rotate') && e && panel && !panel.locked) { gizmo.attach(e.group); applyMode(); }
   else gizmo.detach();
 }
 
 // ---------------------------------------------------------------------------
-//  Picking
+//  Picking + direct manipulation (Select tool = click/drag panels & features)
 // ---------------------------------------------------------------------------
 const raycaster = new THREE.Raycaster(); const ptr = new THREE.Vector2();
+const _hitPt = new THREE.Vector3();
 let downXY = null, downOnGizmo = false;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-function onDown(e) { downXY = { x: e.clientX, y: e.clientY }; downOnGizmo = !!gizmo.axis; }
-function onUp(e) {
-  const wasGizmo = downOnGizmo; const d = downXY; downXY = null; downOnGizmo = false;
-  if (!d || wasGizmo || gizmo.dragging) return;
-  if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // a drag, not a click
+function setNDC(e) {
   const rect = renderer.domElement.getBoundingClientRect();
   ptr.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   ptr.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(ptr, activeCam);
-  const meshes = [...entries.values()].map((en) => en.glass).filter(Boolean);
-  const hit = raycaster.intersectObjects(meshes, false)[0];
+}
+function raycastGlass() {
+  return raycaster.intersectObjects([...entries.values()].map((en) => en.glass).filter(Boolean), false)[0] || null;
+}
 
-  if (interaction === 'stamp') {
-    if (hit && stampCb) {
-      const glass = hit.object;
+function onDown(e) {
+  downXY = { x: e.clientX, y: e.clientY };
+  downOnGizmo = !!gizmo.axis;
+  drag = null;
+  if (tool !== 'select' || downOnGizmo) return; // gizmo / orbit handle it
+  setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+
+  // a placed feature first (they sit just in front of the glass)
+  const fhit = featurePickMeshes.length ? raycaster.intersectObjects(featurePickMeshes, false)[0] : null;
+  if (fhit) {
+    const { featureId, panelId } = fhit.object.userData;
+    const en = entries.get(panelId); if (!en) return;
+    const mark = (en.featureMarks || []).find((m) => m.userData.featureId === featureId);
+    const panel = project.panels.find((p) => p.id === panelId);
+    const feat = panel && (panel.features || []).find((f) => f.id === featureId);
+    const q = en.group.getWorldQuaternion(new THREE.Quaternion());
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, fhit.point);
+    const local0 = en.glass.worldToLocal(fhit.point.clone());
+    drag = {
+      type: 'feature', panelId, featureId, glass: en.glass, mark, y0: mark.userData.y0, plane,
+      offX: (feat ? feat.x : local0.x) - local0.x, offY: (feat ? feat.y : local0.y) - local0.y, moved: false,
+    };
+    orbit.enabled = false; return;
+  }
+
+  // otherwise a panel body -> free-drag on the ground plane
+  const ghit = raycastGlass();
+  if (ghit) {
+    const panelId = ghit.object.userData.panelId;
+    const en = entries.get(panelId); if (!en) return;
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, en.group.position.y, 0));
+    raycaster.ray.intersectPlane(plane, _hitPt);
+    drag = { type: 'panel', panelId, group: en.group, plane, offX: en.group.position.x - _hitPt.x, offZ: en.group.position.z - _hitPt.z, moved: false };
+    orbit.enabled = false;
+  }
+}
+
+function onMove(e) {
+  if (!drag) return;
+  setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+  if (!raycaster.ray.intersectPlane(drag.plane, _hitPt)) return;
+  if (downXY && Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 3) drag.moved = true;
+  if (drag.type === 'feature') {
+    const local = drag.glass.worldToLocal(_hitPt.clone());
+    const panel = project.panels.find((p) => p.id === drag.panelId);
+    const d = panel ? panelDims(panel) : { wMax: 36, hMax: 42 };
+    let x = clamp(local.x + drag.offX, -d.wMax / 2 + 0.5, d.wMax / 2 - 0.5);
+    let y = clamp(local.y + drag.offY, 0.5, d.hMax - 0.5);
+    if (snap) { x = Math.round(x * 4) / 4; y = Math.round(y * 4) / 4; }
+    drag.mark.position.set(x, drag.y0 + y, drag.mark.position.z);
+    if (featureMoveCb) featureMoveCb(drag.panelId, drag.featureId, { x: round(x), y: round(y) }, false);
+  } else {
+    let x = _hitPt.x + drag.offX, z = _hitPt.z + drag.offZ;
+    if (snap) { x = Math.round(x * 4) / 4; z = Math.round(z * 4) / 4; }
+    drag.group.position.x = x; drag.group.position.z = z;
+    if (transformCb) transformCb(drag.panelId, { x: round(x), z: round(z) }, false);
+  }
+  needsRender = true;
+}
+
+function onUp(e) {
+  if (drag) {
+    const dr = drag; drag = null; downXY = null; orbit.enabled = true;
+    if (dr.type === 'feature') {
+      if (dr.moved) {
+        const panel = project.panels.find((p) => p.id === dr.panelId);
+        const f = panel && (panel.features || []).find((x) => x.id === dr.featureId);
+        if (f && featureMoveCb) featureMoveCb(dr.panelId, dr.featureId, { x: round(f.x), y: round(f.y) }, true);
+      } else if (featureSelectCb) featureSelectCb(dr.panelId, dr.featureId);
+    } else {
+      if (dr.moved) commitTransform(dr.panelId, true);
+      else if (selectCb) selectCb(dr.panelId);
+    }
+    needsRender = true; return;
+  }
+
+  const wasGizmo = downOnGizmo; const d = downXY; downXY = null; downOnGizmo = false;
+  if (!d || wasGizmo || gizmo.dragging) return;
+  if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // a drag (orbit), not a click
+  setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+  const ghit = raycastGlass();
+  if (tool === 'stamp') {
+    if (ghit && stampCb) {
+      const glass = ghit.object;
       const panel = project ? project.panels.find((p) => p.id === glass.userData.panelId) : null;
-      const local = glass.worldToLocal(hit.point.clone()); // x from centre, y up from base
-      const d = panel ? panelDims(panel) : { wMax: 36, hMax: 42 };
-      let x = Math.max(-d.wMax / 2 + 0.5, Math.min(d.wMax / 2 - 0.5, local.x));
-      let y = Math.max(0.5, Math.min(d.hMax - 0.5, local.y));
+      const local = glass.worldToLocal(ghit.point.clone());
+      const dd = panel ? panelDims(panel) : { wMax: 36, hMax: 42 };
+      let x = clamp(local.x, -dd.wMax / 2 + 0.5, dd.wMax / 2 - 0.5);
+      let y = clamp(local.y, 0.5, dd.hMax - 0.5);
       if (snap) { x = Math.round(x * 4) / 4; y = Math.round(y * 4) / 4; }
       stampCb(glass.userData.panelId, stampKind, round(x), round(y));
     }
     return;
   }
-  if (selectCb) selectCb(hit ? hit.object.userData.panelId : null);
+  if (selectCb) selectCb(ghit ? ghit.object.userData.panelId : null);
 }
 
 function commitTransform(id, save) {
@@ -324,16 +428,18 @@ function commitTransform(id, save) {
 export function onSelect(cb) { selectCb = cb; }
 export function onTransform(cb) { transformCb = cb; }
 export function onStamp(cb) { stampCb = cb; }
+export function onFeatureMove(cb) { featureMoveCb = cb; }
+export function onFeatureSelect(cb) { featureSelectCb = cb; }
 
-/** Switch between selecting/moving panels and stamping holes/cut-outs. */
-export function setInteraction(m, kind) {
-  interaction = m;
+/** Active tool: 'select' | 'move' | 'rotate' | 'stamp'. */
+export function setTool(t, kind) {
+  tool = t;
   if (kind) stampKind = kind;
-  if (interaction === 'stamp') gizmo.detach(); else refreshSelection();
-  if (renderer) renderer.domElement.style.cursor = interaction === 'stamp' ? 'crosshair' : '';
+  if (t === 'stamp') gizmo.detach(); else refreshSelection();
+  if (renderer) renderer.domElement.style.cursor = (t === 'stamp') ? 'crosshair' : 'default';
   needsRender = true;
 }
-export function getInteraction() { return interaction; }
+export function getTool() { return tool; }
 
 // ---------------------------------------------------------------------------
 //  Cameras / modes
@@ -350,13 +456,13 @@ function applyCamMode() {
   orbit.update(); needsRender = true;
 }
 
-export function setGizmoMode(m) { gizmoMode = m; applyMode(); }
 function applyMode() {
   if (!gizmo) return;
-  gizmo.setMode(gizmoMode);
+  const rotate = tool === 'rotate';
+  gizmo.setMode(rotate ? 'rotate' : 'translate');
   // translate: all three axes (Y lets panels step up/down for stairs); rotate: heading only
-  if (gizmoMode === 'translate') { gizmo.showX = true; gizmo.showZ = true; gizmo.showY = true; }
-  else { gizmo.showX = false; gizmo.showZ = false; gizmo.showY = true; }
+  if (rotate) { gizmo.showX = false; gizmo.showZ = false; gizmo.showY = true; }
+  else { gizmo.showX = true; gizmo.showZ = true; gizmo.showY = true; }
   gizmo.setSize(0.9);
   needsRender = true;
 }
@@ -402,17 +508,65 @@ export function fit() {
 // ---------------------------------------------------------------------------
 //  Export
 // ---------------------------------------------------------------------------
-export function snapshot({ scale = 2.5, clean = true } = {}) {
+export function snapshot({ scale = 2.5, clean = true, dims = true } = {}) {
   const gv = grid.visible, sv = gizmo.visible;
   if (clean) { grid.visible = false; gizmo.visible = false; labelRenderer.domElement.style.display = 'none'; }
+  const tempDims = dims ? addDimLabels() : [];
   renderer.setPixelRatio(scale);
   renderer.render(scene, activeCam);
   const url = renderer.domElement.toDataURL('image/png');
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  tempDims.forEach((m) => { m.geometry.dispose(); m.material.map?.dispose(); m.material.dispose(); m.parent?.remove(m); });
   grid.visible = gv; gizmo.visible = sv;
   labelRenderer.domElement.style.display = showLabels ? '' : 'none';
   resize();
   return url;
+}
+
+// Bake raw dimension numbers onto the inside of each glass panel (export only).
+function addDimLabels() {
+  const out = [];
+  if (!project) return out;
+  for (const [id, e] of entries) {
+    const p = project.panels.find((x) => x.id === id); if (!p) continue;
+    const d = panelDims(p);
+    const y0 = project.options.baseShoe ? BASE_H : 0;
+    const halfT = (p.thickness || 0.5) / 2 + 0.2;
+    const th = Math.max(2.2, Math.min(7, Math.min(d.wBottom, d.hMax) * 0.18));
+    // width along the bottom, height up the left side (vertical)
+    const wlab = makeDimText(len(d.wBottom), th);
+    wlab.position.set(0, y0 + th * 1.1, halfT);
+    e.group.add(wlab); out.push(wlab);
+    const hlab = makeDimText(len(d.hLeft), th);
+    hlab.rotation.z = Math.PI / 2;
+    hlab.position.set(-d.wBottom / 2 + th * 1.1, y0 + d.hLeft / 2, halfT);
+    e.group.add(hlab); out.push(hlab);
+  }
+  return out;
+}
+
+function makeDimText(text, heightIn) {
+  const fontPx = 80, pad = 16;
+  const c = document.createElement('canvas');
+  let ctx = c.getContext('2d');
+  ctx.font = `700 ${fontPx}px Arial, sans-serif`;
+  const tw = ctx.measureText(text).width;
+  c.width = Math.ceil(tw + pad * 2); c.height = Math.ceil(fontPx + pad * 2);
+  ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  const r = 18, w = c.width, h = c.height;
+  ctx.beginPath();
+  ctx.moveTo(r, 0); ctx.arcTo(w, 0, w, h, r); ctx.arcTo(w, h, 0, h, r); ctx.arcTo(0, h, 0, 0, r); ctx.arcTo(0, 0, w, 0, r); ctx.closePath(); ctx.fill();
+  ctx.font = `700 ${fontPx}px Arial, sans-serif`;
+  ctx.fillStyle = '#0f172a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, h / 2 + 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const aspect = w / h;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(heightIn * aspect, heightIn),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  mesh.renderOrder = 999;
+  return mesh;
 }
 
 // ---------------------------------------------------------------------------
