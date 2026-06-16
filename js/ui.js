@@ -56,9 +56,9 @@ function panelCard(p, pn, i, selectedId) {
     <div class="pc-head">
       <span class="pcode" style="--c:${GLASS_TYPES[pn.glassType]?.swatch}">${esc(panelLabel(pn, i))}</span>
       <input class="pname" data-field="panel.name" ${dn} value="${attr(pn.name)}" placeholder="Label (optional)">
-      <button class="icon-btn ${pn.locked ? 'on' : ''}" data-act="toggleLock" ${dn} title="${pn.locked ? 'Unlock' : 'Lock'} position">${pn.locked ? '🔒' : '🔓'}</button>
-      <button class="icon-btn" data-act="dupPanel" ${dn} title="Duplicate">⧉</button>
-      <button class="icon-btn" data-act="removePanel" ${dn} title="Delete">✕</button>
+      <button class="icon-btn ${pn.locked ? 'on' : ''}" tabindex="-1" data-act="toggleLock" ${dn} title="${pn.locked ? 'Unlock' : 'Lock'} position">${pn.locked ? '🔒' : '🔓'}</button>
+      <button class="icon-btn" tabindex="-1" data-act="dupPanel" ${dn} title="Duplicate">⧉</button>
+      <button class="icon-btn" tabindex="-1" data-act="removePanel" ${dn} title="Delete">✕</button>
     </div>
     <div class="pc-glass">
       <select class="gsel" data-field="panel.glassType" ${dn}>
@@ -74,9 +74,10 @@ function panelCard(p, pn, i, selectedId) {
     ${pn.customShape ? `<div class="pc-dims">
       ${field('panel.widthTop', pn.widthTop ?? pn.width, pn.id, 'W↑', 'in', 1, 0.125)}
       ${field('panel.heightRight', pn.heightRight ?? pn.height, pn.id, 'H→', 'in', 1, 0.125)}
-      <span class="dim-spacer"></span>
-    </div>` : ''}
-    <label class="chk chk--sm"><input type="checkbox" data-field="panel.customShape" data-panel="${pn.id}" ${pn.customShape ? 'checked' : ''}> Custom / tapered shape (stairs, angles)</label>
+      ${field('panel.baseRise', pn.baseRise ?? 0, pn.id, 'Rise', 'in', null, 0.125)}
+    </div>
+    <p class="feats-hint">Stair panel: keep W↓=W↑ and H←=H→, then set <b>Rise</b> to how much the right side climbs across the panel (negative = down to the right).</p>` : ''}
+    <label class="chk chk--sm"><input type="checkbox" data-field="panel.customShape" data-panel="${pn.id}" ${pn.customShape ? 'checked' : ''}> Custom / tapered / stair shape</label>
     <div class="pc-pos">
       ${field('panel.x', round(pn.x), pn.id, 'X', 'in', null, 0.25)}
       ${field('panel.z', round(pn.z), pn.id, 'Z', 'in', null, 0.25)}
@@ -110,7 +111,7 @@ function featureRow(pn, f) {
     ${fnum('feat.fromLeft', round(c.fromLeft), dn, 'L')}
     ${fnum('feat.fromBottom', round(c.fromBottom), dn, 'B')}
     ${size}
-    <button class="icon-btn" data-act="removeFeature" ${dn} title="Remove">✕</button>
+    <button class="icon-btn" tabindex="-1" data-act="removeFeature" ${dn} title="Remove">✕</button>
   </div>`;
 }
 
@@ -155,7 +156,7 @@ function hwLine(l) {
     <label class="fnum"><span>×</span><input class="num" type="number" min="0" step="1" data-hwfield="qty" ${dn} value="${l.qty ?? 1}"></label>
     <label class="fnum"><span>$</span><input class="num" type="number" min="0" step="0.5" data-hwfield="price" ${dn} value="${l.price ?? 0}"></label>
     <span class="hw-total">${money((l.qty || 0) * (l.price || 0))}</span>
-    <button class="icon-btn" data-act="removeHardware" ${dn} title="Remove">✕</button>
+    <button class="icon-btn" tabindex="-1" data-act="removeHardware" ${dn} title="Remove">✕</button>
   </div>`;
 }
 

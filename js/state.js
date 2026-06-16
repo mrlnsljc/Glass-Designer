@@ -32,7 +32,7 @@ export const makePanel = (over = {}) => ({
   id: uid('pnl'),
   name: '',
   width: 36, height: 42, thickness: 0.5,
-  widthTop: 36, heightRight: 42, customShape: false, // tapered / rake panels
+  widthTop: 36, heightRight: 42, baseRise: 0, customShape: false, // tapered / rake / stair-parallelogram panels
   glassType: 'clear',
   features: [],            // placed holes / cut-outs
   x: 0, y: 0, z: 0, rotationY: 0, // ground position + elevation (in) + heading (deg)
@@ -53,6 +53,7 @@ function normalize(p) {
     if (pn.y == null) pn.y = 0;
     if (pn.widthTop == null) pn.widthTop = pn.width;
     if (pn.heightRight == null) pn.heightRight = pn.height;
+    if (pn.baseRise == null) pn.baseRise = 0;
     if (pn.customShape == null) pn.customShape = false;
     if (!Array.isArray(pn.features)) {
       pn.features = [];

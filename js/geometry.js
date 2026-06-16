@@ -12,25 +12,35 @@ export const PANEL_GAP = 0.5;
 export const BASE_H = 4;      // base shoe height (in), when enabled
 
 /* A panel face is a quad in its own local frame: x measured from the horizontal
-   centre, y measured UP from the base (y = 0). A plain rectangle uses width
-   (bottom) + height (left). With customShape on, the top width and right height
-   can differ, giving trapezoid / rake panels for stairs and odd openings. */
+   centre, y measured UP. Corner heights:
+     BL = 0,  BR = baseRise,  TL = hLeft,  TR = baseRise + hRight
+   • Rectangle: all defaults equal.
+   • Tapered/rake (flat bottom, sloped top): hLeft ≠ hRight, baseRise = 0.
+   • Stair parallelogram: baseRise slopes the BOTTOM edge; keep widths + heights
+     equal and the top edge stays parallel to the bottom (vertical ends). */
 export function panelDims(p) {
   const wBottom = p.width;
   const wTop = p.customShape ? (p.widthTop ?? p.width) : p.width;
   const hLeft = p.height;
   const hRight = p.customShape ? (p.heightRight ?? p.height) : p.height;
-  return { wBottom, wTop, hLeft, hRight, hMax: Math.max(hLeft, hRight), wMax: Math.max(wBottom, wTop) };
+  const baseRise = p.customShape ? (p.baseRise ?? 0) : 0; // right side of the base lifted (stair slope)
+  const topMax = Math.max(hLeft, baseRise + hRight);
+  const vMin = Math.min(0, baseRise);
+  return {
+    wBottom, wTop, hLeft, hRight, baseRise,
+    wMax: Math.max(wBottom, wTop),
+    hMax: topMax, vMin, vMid: (vMin + topMax) / 2, vSpan: (topMax - vMin) || 1,
+  };
 }
 
-/** Face corners [BL, BR, TR, TL] as [x, y] (x from centre, y from base). */
+/** Face corners [BL, BR, TR, TL] as [x, y] (x from centre, y up). */
 export function panelCorners(p) {
   const d = panelDims(p);
   return [
-    [-d.wBottom / 2, 0],
-    [d.wBottom / 2, 0],
-    [d.wTop / 2, d.hRight],
-    [-d.wTop / 2, d.hLeft],
+    [-d.wBottom / 2, 0],                    // bottom-left
+    [d.wBottom / 2, d.baseRise],            // bottom-right (lifted for stair slope)
+    [d.wTop / 2, d.baseRise + d.hRight],    // top-right
+    [-d.wTop / 2, d.hLeft],                 // top-left
   ];
 }
 

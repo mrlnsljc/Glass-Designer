@@ -7,7 +7,7 @@
      online load the app keeps working with no connection.
    Bump CACHE_VERSION to force clients onto new assets.
    ============================================================================= */
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v8';
 const SHELL = `grd-shell-${CACHE_VERSION}`;
 const CDN = `grd-cdn-${CACHE_VERSION}`;
 

@@ -93,7 +93,7 @@ function onControlInput(e) {
 
   if (f === 'panel.name') { store.updatePanel(el.dataset.panel, { name: el.value }); renderScene(); return; }
 
-  if (['panel.width', 'panel.height', 'panel.widthTop', 'panel.heightRight'].includes(f)) {
+  if (['panel.width', 'panel.height', 'panel.widthTop', 'panel.heightRight', 'panel.baseRise'].includes(f)) {
     store.updatePanel(el.dataset.panel, { [f.split('.')[1]]: num(el.value, 12) });
     renderScene(); renderTotals(); refreshCardCost(el.dataset.panel);
     return;
@@ -147,12 +147,12 @@ function onControlChange(e) {
     renderControls(); renderScene();
     return;
   }
-  // commit (rebuild for consistent per-line/per-panel costs + derived values) on blur
-  if (el.dataset.hwfield || (el.dataset.field || '').startsWith('feat.') ||
-    ['rate', 'featCost', 'temperPerSqFt', 'markupPct', 'panel.width', 'panel.height',
-      'panel.widthTop', 'panel.heightRight', 'panel.thickness', 'panel.y'].includes(el.dataset.field)) {
-    renderControls();
-  }
+  // A pricing-rate change affects EVERY panel's displayed cost — refresh those in
+  // place. We deliberately do NOT rebuild the whole form here, so the browser's
+  // native Tab key keeps moving from field to field (rebuilding would destroy the
+  // field you're tabbing into). All other value edits are already kept current by
+  // the live `input` handler above.
+  if (['rate', 'featCost', 'temperPerSqFt'].includes(el.dataset.field)) refreshAllPanelCosts();
 }
 
 function onControlClick(e) {
@@ -277,6 +277,13 @@ function refreshCardCost(id) {
   const p = store.findPanel(id); if (!p) return;
   const card = cardFor(id);
   if (card) card.querySelector('.pcost').textContent = money(panelCost(p, state.project.pricing).total);
+}
+function refreshAllPanelCosts() {
+  state.project.panels.forEach((p) => {
+    const card = cardFor(p.id);
+    if (card) card.querySelector('.pcost').textContent = money(panelCost(p, state.project.pricing).total);
+  });
+  renderTotals();
 }
 const cardFor = (id) => controlsEl.querySelector(`.panel-card[data-panel="${id}"]`);
 function refreshHwLineTotal(id) {

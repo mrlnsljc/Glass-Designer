@@ -172,7 +172,7 @@ export function render(proj) {
 }
 
 const signature = (p, o, i) =>
-  [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.customShape, p.glassType,
+  [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.baseRise, p.customShape, p.glassType,
     o.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i),
     (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}`).join(',')].join('|');
 
@@ -226,7 +226,7 @@ function buildPanel(entry, p, i, o) {
     const dims = p.customShape ? `${len(d.wBottom)}↔${len(d.wTop)} × ${len(d.hLeft)}↕${len(d.hRight)}` : `${len(d.wBottom)} × ${len(d.hLeft)}`;
     el.innerHTML = `<b>${escapeHTML(panelLabel(p, i))}</b> ${dims}<span>${tint.short}${(p.y > 0) ? ' · ↑' + len(p.y) : ''}${fcount ? ' · ' + fcount + '◳' : ''}${p.locked ? ' · 🔒' : ''}</span>`;
     const chip = new CSS2DObject(el);
-    chip.position.set(0, y0 + d.hMax / 2, (p.thickness || 0.5) / 2 + 0.2);
+    chip.position.set(0, y0 + d.vMid, (p.thickness || 0.5) / 2 + 0.2);
     g.add(chip); entry.chip = chip;
   }
 }
@@ -514,9 +514,9 @@ function addPanelDims(group, p) {
   add(len(d.wBottom), 0, y0 + th * 1.1, false);
   add(len(d.hLeft), -d.wBottom / 2 + th * 1.1, y0 + d.hLeft / 2, true);
   if (p.customShape) {
-    const topMidY = y0 + (d.hLeft + d.hRight) / 2;
+    const topMidY = y0 + (d.hLeft + d.baseRise + d.hRight) / 2;
     add(len(d.wTop), 0, topMidY - th * 1.1, false);
-    add(len(d.hRight), d.wBottom / 2 - th * 1.1, y0 + d.hRight / 2, true);
+    add(len(d.hRight), d.wBottom / 2 - th * 1.1, y0 + d.baseRise + d.hRight / 2, true);
   }
   return out;
 }
@@ -548,12 +548,12 @@ export function snapshotPanels({ scale = 2 } = {}) {
     const dims = addPanelDims(e.group, p);
     const d = panelDims(p);
     const y0 = project.options.baseShoe ? BASE_H : 0;
-    const center = e.group.localToWorld(new THREE.Vector3(0, y0 + d.hMax / 2, 0));
+    const center = e.group.localToWorld(new THREE.Vector3(0, y0 + d.vMid, 0));
     const q = e.group.getWorldQuaternion(new THREE.Quaternion());
     const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
     cam.position.copy(center).addScaledVector(normal, 1000);
     cam.up.set(0, 1, 0); cam.lookAt(center);
-    let halfW = (d.wMax / 2) * 1.16, halfH = (d.hMax / 2) * 1.2;
+    let halfW = (d.wMax / 2) * 1.16, halfH = (d.vSpan / 2) * 1.2;
     if (halfW / halfH < aspect) halfW = halfH * aspect; else halfH = halfW / aspect;
     cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
     cam.updateProjectionMatrix();
