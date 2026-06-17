@@ -88,6 +88,7 @@ function panelCard(p, pn, i, selectedId) {
     <div class="pc-channels">
       <span class="ch-lbl">Channels</span>
       ${chTog(pn, 'top', 'Top')}${chTog(pn, 'bottom', 'Bottom')}${chTog(pn, 'left', 'Left')}${chTog(pn, 'right', 'Right')}
+      <label class="ch-tog ${pn.baseShoe ? 'on' : ''}" title="Bottom mounting shoe (raises the glass)"><input type="checkbox" tabindex="-1" data-baseshoe data-panel="${pn.id}" ${pn.baseShoe ? 'checked' : ''}>Base shoe</label>
     </div>
     ${featuresBlock(pn)}
   </div>`;
@@ -203,17 +204,22 @@ function pricingSection(p) {
 function optionsSection(p) {
   const o = p.options;
   const opt = (key, label) => `<label class="chk"><input type="checkbox" data-opt="${key}" ${o[key] ? 'checked' : ''}> ${label}</label>`;
-  return section('options', 'View &amp; hardware mounts', `
+  const a = p.area || { width: 0, depth: 0 };
+  return section('options', 'View &amp; work area', `
     <label class="fld"><span>Dimension units</span>
       <select data-opt-units>
         <option value="ftin" ${o.units !== 'inch' ? 'selected' : ''}>Feet + inches (3' 6")</option>
         <option value="inch" ${o.units === 'inch' ? 'selected' : ''}>Inches, 3 decimals (42.000")</option>
       </select></label>
+    <div class="sub-label">Work area on the floor (0 = off)</div>
+    <div class="grid2">
+      <label class="fld"><span>Width</span><span class="suffix"><input class="num" type="number" min="0" step="1" value="${a.width || 0}" data-field="area.width">in</span></label>
+      <label class="fld"><span>Depth</span><span class="suffix"><input class="num" type="number" min="0" step="1" value="${a.depth || 0}" data-field="area.depth">in</span></label>
+    </div>
     <div class="opts">
       ${opt('showGrid', 'Reference grid')}
       ${opt('showLabels', 'Panel labels')}
       ${opt('snap', 'Snap when dragging / stamping (1″ / 15°)')}
-      ${opt('baseShoe', 'Base shoe (channel mount)')}
       ${opt('topRail', 'Top rail / header')}
     </div>`, false);
 }

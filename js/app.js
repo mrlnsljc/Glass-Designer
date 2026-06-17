@@ -40,7 +40,7 @@ function boot() {
 
   renderAll();
   scene.setCamera(state.project.options.camera || 'iso');
-  scene.render(state.project); scene.select(state.selectedPanelId); scene.fit();
+  scene.render(state.project); scene.select(state.selectedPanelIds); scene.fit();
 }
 
 // ---- render pipeline -------------------------------------------------------
@@ -48,12 +48,13 @@ function renderAll() { renderControls(); renderScene({ fit: false }); renderHead
 
 function renderControls() {
   controlsEl.innerHTML = controlsHTML(state.project, state.selectedPanelId);
+  (state.selectedPanelIds || []).forEach((id) => cardFor(id)?.classList.add('panel-card--sel'));
   renderTotals(); renderPlan();
 }
 function renderScene({ fit = false } = {}) {
   setUnitMode(state.project.options.units);
   scene.render(state.project);
-  scene.select(state.selectedPanelId);
+  scene.select(state.selectedPanelIds);
   if (fit) scene.fit();
   renderPlan();
 }
@@ -73,7 +74,7 @@ function wireControls() {
   controlsEl.addEventListener('input', onControlInput);
   controlsEl.addEventListener('change', onControlChange);
   controlsEl.addEventListener('click', onControlClick);
-  planEl?.addEventListener('click', (e) => { const id = e.target.getAttribute?.('data-panel'); if (id) selectPanel(id); });
+  planEl?.addEventListener('click', (e) => { const id = e.target.getAttribute?.('data-panel'); if (id) selectPanel(id, e.shiftKey); });
 }
 
 function onControlInput(e) {
@@ -91,6 +92,7 @@ function onControlInput(e) {
 
   if (f === 'name') { state.project.name = el.value; renderHeader(); emit(); return; }
   if (f.startsWith('client.')) { state.project.client[f.slice(7)] = el.value; emit(); return; }
+  if (f === 'area.width' || f === 'area.depth') { state.project.area[f.split('.')[1]] = Math.max(0, num(el.value, 0)); emit(); renderScene(); return; }
 
   if (f === 'panel.name') { store.updatePanel(el.dataset.panel, { name: el.value }); renderScene(); return; }
 
@@ -146,6 +148,12 @@ function onControlChange(e) {
     renderScene();
     return;
   }
+  if (el.dataset.baseshoe !== undefined) {
+    store.updatePanel(el.dataset.panel, { baseShoe: el.checked });
+    el.closest('.ch-tog')?.classList.toggle('on', el.checked);
+    renderScene();
+    return;
+  }
   if (el.dataset.field === 'panel.glassType') {
     store.updatePanel(el.dataset.panel, { glassType: el.value });
     renderControls(); renderScene();
@@ -180,7 +188,7 @@ function onControlClick(e) {
     }
     case 'addFeatureCenter':
       store.addFeature(id, makeFeature(btn.dataset.kind, 0, 0));
-      state.selectedPanelId = id;
+      state.selectedPanelId = id; state.selectedPanelIds = [id];
       renderControls(); renderScene();
       break;
     case 'removeFeature':
@@ -209,7 +217,7 @@ function onControlClick(e) {
     }
     case 'selectPanel':
       if (e.target.closest('input,select,button,textarea')) return;
-      selectPanel(id);
+      selectPanel(id, e.shiftKey);
       break;
   }
 }
@@ -217,7 +225,7 @@ function onControlClick(e) {
 // ---- stamping holes / cut-outs from the 3D view ----------------------------
 function onSceneStamp(panelId, kind, x, y) {
   store.addFeature(panelId, makeFeature(kind, x, y));
-  state.selectedPanelId = panelId;
+  state.selectedPanelId = panelId; state.selectedPanelIds = [panelId];
   renderControls(); renderScene();
 }
 
@@ -235,8 +243,8 @@ function onSceneFeatureMove(panelId, featId, pos, save) {
   if (save) renderControls();
 }
 function onSceneFeatureSelect(panelId, featId) {
-  state.selectedPanelId = panelId;
-  scene.select(panelId);
+  state.selectedPanelId = panelId; state.selectedPanelIds = [panelId];
+  scene.select(state.selectedPanelIds);
   renderControls();
   const row = cardFor(panelId)?.querySelector(`.feat-row[data-feat="${featId}"]`);
   if (row) { row.classList.add('feat-row--sel'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
@@ -261,16 +269,25 @@ function addCorner() {
 // ---------------------------------------------------------------------------
 //  Selection + gizmo transform sync (no full rebuild)
 // ---------------------------------------------------------------------------
-function selectPanel(id) {
-  state.selectedPanelId = (state.selectedPanelId === id) ? null : id;
-  scene.select(state.selectedPanelId);
+// `additive` (Shift) adds/removes from the multi-selection; otherwise selects one.
+function selectPanel(id, additive) {
+  if (!id) state.selectedPanelIds = [];
+  else if (additive) {
+    const set = new Set(state.selectedPanelIds || []);
+    set.has(id) ? set.delete(id) : set.add(id);
+    state.selectedPanelIds = [...set];
+  } else {
+    state.selectedPanelIds = [id];
+  }
+  state.selectedPanelId = state.selectedPanelIds[state.selectedPanelIds.length - 1] || null;
+  scene.select(state.selectedPanelIds);
   controlsEl.querySelectorAll('.panel-card--sel').forEach((n) => n.classList.remove('panel-card--sel'));
-  if (state.selectedPanelId) cardFor(id)?.classList.add('panel-card--sel');
+  state.selectedPanelIds.forEach((pid) => cardFor(pid)?.classList.add('panel-card--sel'));
   renderPlan();
 }
-function onScenePick(id) {
-  selectPanel(id);
-  if (id) cardFor(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+function onScenePick(id, additive) {
+  selectPanel(id, additive);
+  if (id && !additive) cardFor(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 function onSceneTransform(id, t, save) {
   store.setPanelTransform(id, t, save);
@@ -327,7 +344,7 @@ function wireHeader() {
 
 const HINTS = {
   select: 'Holes tool · drag a hole / cut-out to move it around on its glass (panels: use Move / Rotate)',
-  move: 'Move tool · click a panel, then drag the gizmo arrows (incl. up/down for stairs)',
+  move: 'Move tool · click a panel (Shift-click to add more), then drag the gizmo to move them together',
   rotate: 'Rotate tool · click a panel, then drag the ring to spin it',
 };
 const setHint = (t) => { const h = $('.hint'); if (h) h.textContent = t; };
@@ -401,7 +418,7 @@ function handleMenu(cmd) {
 
 function loadFresh(p) {
   if (p && p.id !== state.project?.id) store.setActiveProject(p);
-  state.selectedPanelId = null;
+  state.selectedPanelId = null; state.selectedPanelIds = [];
   renderAll(); scene.setCamera(state.project.options.camera || 'iso'); scene.render(state.project); scene.fit();
 }
 

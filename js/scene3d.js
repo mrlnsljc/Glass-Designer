@@ -30,12 +30,14 @@ import { BASE_H, panelCorners, panelDims } from './geometry.js';
 
 let renderer, labelRenderer, scene, world, container;
 let orbit, gizmo, perspCam, orthoCam, activeCam;
-let grid;
+let grid, areaGroup;
 let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = true, showGrid = true;
 let needsRender = true, raf = 0;
 let project = null;
 let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
 let draggingId = null, selectedId = null, selectedFeatureId = null;
+let selectedIds = [], multiIds = [], pivot;
+const pivotLast = new THREE.Vector3();
 let featurePickMeshes = [];
 let drag = null; // active direct-manipulation drag (select tool)
 
@@ -88,6 +90,8 @@ export function init(el) {
   grid = new THREE.GridHelper(480, 40, 0x9aa7b6, 0xc2cdd8);
   grid.material.transparent = true; grid.material.opacity = 0.5; grid.position.y = 0.02;
   scene.add(grid);
+  areaGroup = new THREE.Group();
+  scene.add(areaGroup);
 
   perspCam = new THREE.PerspectiveCamera(42, w / h, 1, 100000);
   orthoCam = new THREE.OrthographicCamera(-w, w, h, -h, -100000, 100000);
@@ -102,15 +106,20 @@ export function init(el) {
   gizmo.addEventListener('change', () => { needsRender = true; });
   gizmo.addEventListener('dragging-changed', (e) => {
     orbit.enabled = !e.value;
-    if (!e.value && draggingId) { commitTransform(draggingId, true); draggingId = null; }
+    if (!e.value) {
+      if (gizmo.object === pivot) groupMove(true);
+      else if (draggingId) { commitTransform(draggingId, true); draggingId = null; }
+    }
   });
   gizmo.addEventListener('objectChange', () => {
+    if (gizmo.object === pivot) { groupMove(false); return; }
     if (gizmo.object && gizmo.object.userData.panelId) {
       draggingId = gizmo.object.userData.panelId;
       commitTransform(draggingId, false);
     }
   });
   scene.add(gizmo);
+  pivot = new THREE.Object3D(); scene.add(pivot); // anchor for multi-panel group moves
   applyMode();
 
   world = new THREE.Group();
@@ -165,15 +174,37 @@ export function render(proj) {
       for (const ch of m.children) if (ch.userData && ch.userData.featureHit) featurePickMeshes.push(ch);
     }
   }
+  buildWorkArea();
   refreshSelection();
   recomputeContentBox();
   setSnap(snap);
   needsRender = true;
 }
 
+// Optional work-area footprint drawn on the floor (a labelled rectangle) for scale.
+function buildWorkArea() {
+  if (!areaGroup) return;
+  while (areaGroup.children.length) {
+    const c = areaGroup.children.pop();
+    c.geometry?.dispose?.();
+    if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach((m) => m.dispose?.());
+    if (c.element && c.element.parentNode) c.element.parentNode.removeChild(c.element);
+  }
+  const a = project && project.area;
+  if (!a || !(a.width > 0) || !(a.depth > 0)) return;
+  const hx = a.width / 2, hz = a.depth / 2, y = 0.06;
+  const pts = [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz], [-hx, -hz]].map(([x, z]) => new THREE.Vector3(x, y, z));
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x2563eb, transparent: true, opacity: 0.65 }));
+  areaGroup.add(line);
+  const th = Math.min(12, Math.max(4, Math.min(a.width, a.depth) * 0.05));
+  const wl = makeDimText(len(a.width), th); wl.rotation.x = -Math.PI / 2; wl.position.set(0, y + 0.1, hz + th); areaGroup.add(wl);
+  const dl = makeDimText(len(a.depth), th); dl.rotation.x = -Math.PI / 2; dl.rotation.z = Math.PI / 2; dl.position.set(hx + th, y + 0.1, 0); areaGroup.add(dl);
+}
+
 const signature = (p, o, i) =>
   [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.baseRise, p.customShape, p.glassType,
-    o.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i), channelSig(p.channels),
+    p.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i), channelSig(p.channels),
     (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}`).join(',')].join('|');
 
 function glassGeometry(p) {
@@ -193,9 +224,9 @@ function buildPanel(entry, p, i, o) {
   disposeChildren(g);
   const tint = glassType(p.glassType);
   const d = panelDims(p);
-  const y0 = o.baseShoe ? BASE_H : 0; // glass sits on top of the shoe when enabled
+  const y0 = p.baseShoe ? BASE_H : 0; // glass sits on top of the shoe when enabled
 
-  if (o.baseShoe) {
+  if (p.baseShoe) {
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(d.wBottom + 1, BASE_H, 3.2), metalMat());
     shoe.position.y = BASE_H / 2; shoe.castShadow = true; shoe.receiveShadow = true; g.add(shoe);
   }
@@ -309,20 +340,50 @@ function addChannels(g, p, y0) {
 // ---------------------------------------------------------------------------
 //  Selection + gizmo
 // ---------------------------------------------------------------------------
-export function select(id) {
-  selectedId = id;
+export function select(ids) {
+  selectedIds = Array.isArray(ids) ? ids.filter(Boolean) : (ids ? [ids] : []);
+  selectedId = selectedIds[selectedIds.length - 1] || null;
   refreshSelection();
   needsRender = true;
 }
 
 function refreshSelection() {
   for (const [pid, e] of entries) {
-    if (e.edges) e.edges.material = (pid === selectedId) ? selEdgeMat : e.normalEdgeMat;
+    if (e.edges) e.edges.material = selectedIds.includes(pid) ? selEdgeMat : e.normalEdgeMat;
   }
-  const e = selectedId ? entries.get(selectedId) : null;
-  const panel = selectedId && project ? project.panels.find((p) => p.id === selectedId) : null;
-  if ((tool === 'move' || tool === 'rotate') && e && panel && !panel.locked) { gizmo.attach(e.group); applyMode(); }
-  else gizmo.detach();
+  multiIds = [];
+  if (tool !== 'move' && tool !== 'rotate') { gizmo.detach(); return; }
+  const movable = selectedIds.filter((id) => {
+    const p = project && project.panels.find((x) => x.id === id);
+    return p && !p.locked && entries.get(id);
+  });
+  if (movable.length === 0) { gizmo.detach(); return; }
+  if (movable.length === 1 || tool === 'rotate') {
+    // single target (Rotate always acts on the primary panel only)
+    const id = (tool === 'rotate' && movable.includes(selectedId)) ? selectedId : movable[0];
+    gizmo.attach(entries.get(id).group); applyMode();
+  } else {
+    // 2+ panels + Move tool → group move via a pivot at the centroid
+    multiIds = movable;
+    const c = new THREE.Vector3();
+    for (const id of movable) c.add(entries.get(id).group.position);
+    c.multiplyScalar(1 / movable.length);
+    pivot.position.copy(c); pivotLast.copy(c);
+    gizmo.attach(pivot); applyMode();
+  }
+}
+
+// Apply the pivot's movement delta to every panel in the multi-selection.
+function groupMove(save) {
+  const dx = pivot.position.x - pivotLast.x, dy = pivot.position.y - pivotLast.y, dz = pivot.position.z - pivotLast.z;
+  pivotLast.copy(pivot.position);
+  for (const id of multiIds) {
+    const e = entries.get(id); if (!e) continue;
+    e.group.position.x += dx;
+    e.group.position.y = Math.max(0, e.group.position.y + dy);
+    e.group.position.z += dz;
+    if (transformCb) transformCb(id, { x: round(e.group.position.x), y: Math.max(0, round(e.group.position.y)), z: round(e.group.position.z) }, save);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +479,7 @@ function onUp(e) {
     }
     return;
   }
-  if (selectCb) selectCb(ghit ? ghit.object.userData.panelId : null);
+  if (selectCb) selectCb(ghit ? ghit.object.userData.panelId : null, e.shiftKey);
 }
 
 function commitTransform(id, save) {
@@ -484,6 +545,11 @@ export function setGrid(on) { showGrid = on; if (grid) grid.visible = on; needsR
 function recomputeContentBox() {
   contentBox.makeEmpty();
   for (const e of entries.values()) if (e.glass) contentBox.expandByObject(e.group);
+  const a = project && project.area;
+  if (a && a.width > 0 && a.depth > 0) {
+    contentBox.expandByPoint(new THREE.Vector3(-a.width / 2, 0, -a.depth / 2));
+    contentBox.expandByPoint(new THREE.Vector3(a.width / 2, 42, a.depth / 2));
+  }
 }
 
 export function fit() {
@@ -579,7 +645,7 @@ export function snapshotPanels({ scale = 2 } = {}) {
     e.group.visible = true;
     const dims = addPanelDims(e.group, p);
     const d = panelDims(p);
-    const y0 = project.options.baseShoe ? BASE_H : 0;
+    const y0 = p.baseShoe ? BASE_H : 0;
     const center = e.group.localToWorld(new THREE.Vector3(0, y0 + d.vMid, 0));
     const q = e.group.getWorldQuaternion(new THREE.Quaternion());
     const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();

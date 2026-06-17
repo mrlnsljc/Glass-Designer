@@ -35,6 +35,7 @@ export const makePanel = (over = {}) => ({
   widthTop: 36, heightRight: 42, baseRise: 0, customShape: false, // tapered / rake / stair-parallelogram panels
   glassType: 'clear',
   features: [],            // placed holes / cut-outs / spigots
+  baseShoe: false,         // bottom mounting shoe (raises the glass) — per panel
   channels: { top: false, bottom: false, left: false, right: false }, // edge channels (showers)
   x: 0, y: 0, z: 0, rotationY: 0, // ground position + elevation (in) + heading (deg)
   locked: false,
@@ -46,6 +47,7 @@ function normalize(p) {
   if (!p) return p;
   p.options = p.options || {};
   if (p.options.units == null) p.options.units = 'ftin';
+  if (!p.area) p.area = { width: 0, depth: 0 };
   p.pricing = p.pricing || defaultPricing();
   // merge so new feature buckets (e.g. spigot) get a default while keeping edits
   const hadFeatureCosts = !!p.pricing.featureCosts;
@@ -58,6 +60,7 @@ function normalize(p) {
     if (pn.heightRight == null) pn.heightRight = pn.height;
     if (pn.baseRise == null) pn.baseRise = 0;
     if (pn.customShape == null) pn.customShape = false;
+    if (pn.baseShoe == null) pn.baseShoe = !!(p.options && p.options.baseShoe); // inherit old global
     if (!pn.channels) pn.channels = { top: false, bottom: false, left: false, right: false };
     if (!Array.isArray(pn.features)) {
       pn.features = [];
@@ -80,7 +83,8 @@ export function newProject(name = 'Untitled Design') {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     defaults: { width: 36, height: 42, thickness: 0.5, glassType: 'clear' },
-    options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, baseShoe: false, topRail: false, units: 'ftin' },
+    options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, topRail: false, units: 'ftin' },
+    area: { width: 0, depth: 0 }, // optional work-area footprint drawn on the ground (0 = off)
     panels: [], // blank canvas
     hardware: [], // bill of materials
     pricing: defaultPricing(),
@@ -88,7 +92,7 @@ export function newProject(name = 'Untitled Design') {
 }
 
 // ---------------------------------------------------------------------------
-export const state = { project: null, selectedPanelId: null };
+export const state = { project: null, selectedPanelId: null, selectedPanelIds: [] };
 
 const subscribers = new Set();
 export const subscribe = (fn) => { subscribers.add(fn); return () => subscribers.delete(fn); };
@@ -114,7 +118,7 @@ export function listProjects() { return Object.values(readLib()).sort((a, b) => 
 export function loadProject(id) {
   const lib = readLib();
   if (!lib[id]) return false;
-  state.project = normalize(lib[id]); state.selectedPanelId = null;
+  state.project = normalize(lib[id]); state.selectedPanelId = null; state.selectedPanelIds = [];
   localStorage.setItem(LS_ACTIVE, id);
   emit(false); return true;
 }
@@ -124,7 +128,7 @@ export function deleteProject(id) {
   emit(false);
 }
 export function setActiveProject(project) {
-  state.project = normalize(project); state.selectedPanelId = null; saveActive(); emit(false);
+  state.project = normalize(project); state.selectedPanelId = null; state.selectedPanelIds = []; saveActive(); emit(false);
 }
 export function init() {
   const lib = readLib();
@@ -163,7 +167,7 @@ export function addPanel(over = {}) {
   }
   const p = makePanel({ width: d.width, height: d.height, thickness: d.thickness, glassType: d.glassType, x, z, rotationY, ...over });
   ps.push(p);
-  state.selectedPanelId = p.id;
+  state.selectedPanelId = p.id; state.selectedPanelIds = [p.id];
   emit();
   return p.id;
 }
@@ -177,6 +181,7 @@ export function addPanels(list) {
     return p.id;
   });
   state.selectedPanelId = ids[0] || state.selectedPanelId;
+  state.selectedPanelIds = ids.length ? [ids[0]] : (state.selectedPanelIds || []);
   emit();
   return ids;
 }
@@ -188,14 +193,15 @@ export function duplicatePanel(id) {
     features: (p.features || []).map((f) => ({ ...f, id: uid('ft') })),
   });
   state.project.panels.push(copy);
-  state.selectedPanelId = copy.id;
+  state.selectedPanelId = copy.id; state.selectedPanelIds = [copy.id];
   emit();
   return copy.id;
 }
 
 export function removePanel(id) {
   state.project.panels = state.project.panels.filter((p) => p.id !== id);
-  if (state.selectedPanelId === id) state.selectedPanelId = null;
+  state.selectedPanelIds = (state.selectedPanelIds || []).filter((x) => x !== id);
+  if (state.selectedPanelId === id) state.selectedPanelId = state.selectedPanelIds[state.selectedPanelIds.length - 1] || null;
   emit();
 }
 
