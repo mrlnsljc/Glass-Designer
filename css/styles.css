@@ -150,6 +150,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; outline-
 .dim-spacer { flex: 1; }
 .chk--sm { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .chk--sm input { width: 14px; height: 14px; accent-color: var(--accent); }
+.pc-channels { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.ch-lbl { font-size: 11px; color: var(--muted); font-weight: 600; }
+.ch-tog { font-size: 11px; padding: 3px 8px; border: 1px solid var(--line2); border-radius: 6px; cursor: pointer; color: var(--muted); user-select: none; }
+.ch-tog input { display: none; }
+.ch-tog.on { background: #e0edff; border-color: #bfdbfe; color: var(--accent-ink); font-weight: 600; }
 .pcode {
   font-weight: 700; font-size: 11px; text-align: center; color: var(--ink); flex: none;
   min-width: 30px; border-radius: 5px; padding: 5px 6px; background: var(--c, #e2e8f0); border: 1px solid rgba(0,0,0,.1);

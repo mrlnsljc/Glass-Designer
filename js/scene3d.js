@@ -173,7 +173,7 @@ export function render(proj) {
 
 const signature = (p, o, i) =>
   [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.baseRise, p.customShape, p.glassType,
-    o.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i),
+    o.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i), channelSig(p.channels),
     (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}`).join(',')].join('|');
 
 function glassGeometry(p) {
@@ -211,6 +211,7 @@ function buildPanel(entry, p, i, o) {
   edges.position.copy(glass.position); g.add(edges); entry.edges = edges;
 
   entry.featureMarks = addFeatures(g, p, y0);
+  addChannels(g, p, y0);
 
   if (o.topRail) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(d.wTop + 1, 1.8, 2.4),
@@ -247,7 +248,15 @@ function addFeatures(g, p, y0) {
     mark.position.set(f.x, y0 + f.y, 0); // f.y is height above the panel base
     mark.userData = { featureId: f.id, panelId: p.id, y0 };
     let hitGeo;
-    if (t.shape === 'circle') {
+    if (t.shape === 'spigot') {
+      const w = f.w || t.w, h = f.h || t.h, dz = (p.thickness || 0.5) + 2.6;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, dz), metalMat());
+      mark.add(body);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w * 1.5, w * 0.7, dz * 1.2),
+        new THREE.MeshStandardMaterial({ color: 0xb6bcc2, roughness: 0.4, metalness: 0.85 }));
+      base.position.y = -h / 2 + w * 0.35; mark.add(base); // base plate near the bottom
+      hitGeo = new THREE.PlaneGeometry(Math.max(w, 3), Math.max(h, 3));
+    } else if (t.shape === 'circle') {
       const r = (f.d || t.d) / 2;
       for (const z of [halfT, -halfT]) {
         const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.6, r, 24), ink);
@@ -274,6 +283,27 @@ function addFeatures(g, p, y0) {
     marks.push(mark);
   }
   return marks;
+}
+
+const CHANNEL_W = 1.4;
+const channelSig = (ch) => ch ? `${ch.top ? 1 : 0}${ch.bottom ? 1 : 0}${ch.left ? 1 : 0}${ch.right ? 1 : 0}` : '0000';
+
+// U-channel along the chosen edges (shower / enclosure glass). Each enabled edge
+// gets an aluminium box running corner-to-corner (works on sloped edges too).
+function addChannels(g, p, y0) {
+  const ch = p.channels;
+  if (!ch || !(ch.top || ch.bottom || ch.left || ch.right)) return;
+  const c = panelCorners(p); // [BL, BR, TR, TL] as [x, y]
+  const depth = (p.thickness || 0.5) + 1.8;
+  const edges = [['bottom', c[0], c[1]], ['right', c[1], c[2]], ['top', c[2], c[3]], ['left', c[3], c[0]]];
+  for (const [name, A, B] of edges) {
+    if (!ch[name]) continue;
+    const dx = B[0] - A[0], dy = B[1] - A[1];
+    const box = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(dx, dy), CHANNEL_W, depth), metalMat());
+    box.position.set((A[0] + B[0]) / 2, y0 + (A[1] + B[1]) / 2, 0);
+    box.rotation.z = Math.atan2(dy, dx);
+    g.add(box);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +411,8 @@ function onUp(e) {
       const dd = panel ? panelDims(panel) : { wMax: 36, hMax: 42 };
       let x = clamp(local.x, -dd.wMax / 2 + 0.5, dd.wMax / 2 - 0.5);
       let y = clamp(local.y, 0.5, dd.hMax - 0.5);
+      const st = featureType(stampKind);
+      if (st.snapBottom) y = (st.h || 6) / 2; // spigots line up along the bottom edge
       if (snap) { x = Math.round(x * 4) / 4; y = Math.round(y * 4) / 4; }
       stampCb(glass.userData.panelId, stampKind, round(x), round(y));
     }

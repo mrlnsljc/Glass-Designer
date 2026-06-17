@@ -12,18 +12,19 @@
 
 export const FEATURE_TYPES = {
   hole:    { id: 'hole',   name: 'Hole / Standoff', short: '⌀',  shape: 'circle', d: 0.5,        costKey: 'hole' },
+  spigot:  { id: 'spigot', name: 'Spigot (base)',   short: 'SPG', shape: 'spigot', w: 2, h: 6,   costKey: 'spigot', snapBottom: true },
   hinge:   { id: 'hinge',  name: 'Hinge cut-out',   short: 'HNG', shape: 'rect',   w: 4,  h: 5,   costKey: 'hinge' },
   handle:  { id: 'handle', name: 'Handle / Pull',   short: 'HDL', shape: 'circle', d: 0.75,       costKey: 'handle' },
   lock:    { id: 'lock',   name: 'Lock / Latch',    short: 'LCK', shape: 'rect',   w: 0.9, h: 2.4, costKey: 'lock' },
   notch:   { id: 'notch',  name: 'Corner notch',    short: 'NTC', shape: 'rect',   w: 3,  h: 3,   costKey: 'notch' },
 };
 
-export const FEATURE_ORDER = ['hole', 'hinge', 'handle', 'lock', 'notch'];
+export const FEATURE_ORDER = ['hole', 'spigot', 'hinge', 'handle', 'lock', 'notch'];
 
 export const featureType = (kind) => FEATURE_TYPES[kind] || FEATURE_TYPES.hole;
 
 /** Default cost per feature bucket ($ each). Editable per project under pricing. */
-export const defaultFeatureCosts = () => ({ hole: 6, hinge: 18, handle: 10, lock: 14, notch: 12 });
+export const defaultFeatureCosts = () => ({ hole: 6, spigot: 28, hinge: 18, handle: 10, lock: 14, notch: 12 });
 
 /** Build a fully-formed feature instance for a kind at (x,y). */
 export function makeFeature(kind, x = 0, y = 0) {

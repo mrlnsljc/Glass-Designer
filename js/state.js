@@ -34,7 +34,8 @@ export const makePanel = (over = {}) => ({
   width: 36, height: 42, thickness: 0.5,
   widthTop: 36, heightRight: 42, baseRise: 0, customShape: false, // tapered / rake / stair-parallelogram panels
   glassType: 'clear',
-  features: [],            // placed holes / cut-outs
+  features: [],            // placed holes / cut-outs / spigots
+  channels: { top: false, bottom: false, left: false, right: false }, // edge channels (showers)
   x: 0, y: 0, z: 0, rotationY: 0, // ground position + elevation (in) + heading (deg)
   locked: false,
   ...over,
@@ -46,8 +47,10 @@ function normalize(p) {
   p.options = p.options || {};
   if (p.options.units == null) p.options.units = 'ftin';
   p.pricing = p.pricing || defaultPricing();
-  if (!p.pricing.featureCosts) p.pricing.featureCosts = defaultFeatureCosts();
-  if (p.pricing.holeCost != null && p.pricing.featureCosts.hole == null) p.pricing.featureCosts.hole = p.pricing.holeCost;
+  // merge so new feature buckets (e.g. spigot) get a default while keeping edits
+  const hadFeatureCosts = !!p.pricing.featureCosts;
+  p.pricing.featureCosts = { ...defaultFeatureCosts(), ...(p.pricing.featureCosts || {}) };
+  if (!hadFeatureCosts && p.pricing.holeCost != null) p.pricing.featureCosts.hole = p.pricing.holeCost;
   p.hardware = Array.isArray(p.hardware) ? p.hardware : [];
   (p.panels || []).forEach((pn) => {
     if (pn.y == null) pn.y = 0;
@@ -55,6 +58,7 @@ function normalize(p) {
     if (pn.heightRight == null) pn.heightRight = pn.height;
     if (pn.baseRise == null) pn.baseRise = 0;
     if (pn.customShape == null) pn.customShape = false;
+    if (!pn.channels) pn.channels = { top: false, bottom: false, left: false, right: false };
     if (!Array.isArray(pn.features)) {
       pn.features = [];
       const n = pn.holes || 0; // migrate the old "holes: N" count to placed holes (4" up from base)

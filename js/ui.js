@@ -6,6 +6,7 @@
 import { GLASS_TYPES, GLASS_ORDER } from './glassTypes.js';
 import { FEATURE_TYPES, FEATURE_ORDER, featureType } from './features.js';
 import { allLibraries, libraryName } from './hardware.js';
+import { panelDims } from './geometry.js';
 import { quote, money, panelCost, panelLabel, featureFromCorner } from './pricing.js';
 
 export function controlsHTML(project, selectedId) {
@@ -84,8 +85,17 @@ function panelCard(p, pn, i, selectedId) {
       ${field('panel.rotationY', round(pn.rotationY), pn.id, '∠', '°', null, 1)}
       ${field('panel.y', round(pn.y), pn.id, 'Elev', 'in', 0, 0.25)}
     </div>
+    <div class="pc-channels">
+      <span class="ch-lbl">Channels</span>
+      ${chTog(pn, 'top', 'Top')}${chTog(pn, 'bottom', 'Bottom')}${chTog(pn, 'left', 'Left')}${chTog(pn, 'right', 'Right')}
+    </div>
     ${featuresBlock(pn)}
   </div>`;
+}
+
+function chTog(pn, edge, label) {
+  const on = pn.channels && pn.channels[edge];
+  return `<label class="ch-tog ${on ? 'on' : ''}"><input type="checkbox" tabindex="-1" data-channel="${edge}" data-panel="${pn.id}" ${on ? 'checked' : ''}>${label}</label>`;
 }
 
 function featuresBlock(pn) {
@@ -102,14 +112,16 @@ function featuresBlock(pn) {
 function featureRow(pn, f) {
   const t = featureType(f.kind);
   const c = featureFromCorner(pn, f);
+  const d = panelDims(pn);
   const dn = `data-panel="${pn.id}" data-feat="${f.id}"`;
+  // position + size inputs are bounded to THIS panel's own dimensions
   const size = t.shape === 'circle'
-    ? `${fnum('feat.d', f.d ?? t.d, dn, '⌀')}`
-    : `${fnum('feat.w', f.w ?? t.w, dn, 'w')}${fnum('feat.h', f.h ?? t.h, dn, 'h')}`;
+    ? `${fnum('feat.d', f.d ?? t.d, dn, '⌀', 0.0625, round(Math.min(d.wBottom, d.hMax)))}`
+    : `${fnum('feat.w', f.w ?? t.w, dn, 'w', 0.0625, round(d.wBottom))}${fnum('feat.h', f.h ?? t.h, dn, 'h', 0.0625, round(d.hMax))}`;
   return `<div class="feat-row" ${dn}>
     <span class="feat-tag">${t.short}</span>
-    ${fnum('feat.fromLeft', round(c.fromLeft), dn, 'L')}
-    ${fnum('feat.fromBottom', round(c.fromBottom), dn, 'B')}
+    ${fnum('feat.fromLeft', round(c.fromLeft), dn, 'L', 0, round(d.wBottom))}
+    ${fnum('feat.fromBottom', round(c.fromBottom), dn, 'B', 0, round(d.hMax))}
     ${size}
     <button class="icon-btn" tabindex="-1" data-act="removeFeature" ${dn} title="Remove">✕</button>
   </div>`;
@@ -120,8 +132,9 @@ function field(name, value, panelId, label, suffix, min, step) {
   return `<label class="dim"><span>${label}</span>
     <input class="num" type="number" ${minAttr} step="${step}" value="${value}" data-field="${name}" data-panel="${panelId}">${suffix ? `<i>${suffix}</i>` : ''}</label>`;
 }
-function fnum(name, value, dn, label) {
-  return `<label class="fnum"><span>${label}</span><input class="num" type="number" step="0.125" value="${value}" data-field="${name}" ${dn}></label>`;
+function fnum(name, value, dn, label, min, max) {
+  const a = (min != null ? `min="${min}" ` : '') + (max != null ? `max="${max}" ` : '');
+  return `<label class="fnum"><span>${label}</span><input class="num" type="number" ${a}step="0.125" value="${value}" data-field="${name}" ${dn}></label>`;
 }
 
 // ---- hardware --------------------------------------------------------------

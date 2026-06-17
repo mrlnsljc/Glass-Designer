@@ -15,6 +15,7 @@ import { controlsHTML, totalsHTML } from './ui.js';
 import { planSVG } from './planView.js';
 import { quote, money, panelCost, setUnitMode } from './pricing.js';
 import { makeFeature, featureType } from './features.js';
+import { panelDims } from './geometry.js';
 import { allLibraries, saveCustomItem } from './hardware.js';
 import { downloadImage, printReport } from './exporter.js';
 
@@ -105,15 +106,16 @@ function onControlInput(e) {
     return;
   }
 
-  // placed feature edits (position from corner / size)
+  // placed feature edits — positions/sizes are relative to (and bounded by) THIS panel
   if (f.startsWith('feat.')) {
     const panelId = el.dataset.panel, featId = el.dataset.feat;
     const p = store.findPanel(panelId); if (!p) return;
+    const d = panelDims(p);
     const v = num(el.value, 0);
     const patch = {};
-    if (f === 'feat.fromLeft') patch.x = v - p.width / 2;
-    else if (f === 'feat.fromBottom') patch.y = v - p.height / 2;
-    else patch[f.split('.')[1]] = v; // d / w / h
+    if (f === 'feat.fromLeft') patch.x = clamp(v, 0, d.wBottom) - p.width / 2;     // L: from left edge
+    else if (f === 'feat.fromBottom') patch.y = clamp(v, 0, d.hMax);                // B: up from the base
+    else patch[f.split('.')[1]] = Math.max(0.0625, v);                             // d / w / h
     store.updateFeature(panelId, featId, patch);
     renderScene();
     return;
@@ -135,6 +137,13 @@ function onControlChange(e) {
     state.project.options[el.dataset.opt] = el.checked; emit();
     renderScene();
     if (el.dataset.opt === 'showLabels' || el.dataset.opt === 'snap') renderHeader();
+    return;
+  }
+  if (el.dataset.channel) {
+    const p = store.findPanel(el.dataset.panel);
+    if (p) { store.updatePanel(el.dataset.panel, { channels: { ...(p.channels || {}), [el.dataset.channel]: el.checked } }); }
+    el.closest('.ch-tog')?.classList.toggle('on', el.checked);
+    renderScene();
     return;
   }
   if (el.dataset.field === 'panel.glassType') {
@@ -432,6 +441,7 @@ function projCard(p) {
 
 // ---------------------------------------------------------------------------
 const num = (v, f = 0) => { const n = parseFloat(v); return Number.isFinite(n) ? n : f; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
 
 if ('serviceWorker' in navigator) {
