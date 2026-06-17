@@ -73,6 +73,7 @@
           <button id="vtMove" class="vt on" title="Move panel — gizmo (incl. up/down)">Move</button>
           <button id="vtRotate" class="vt" title="Rotate panel — gizmo">Rotate</button>
           <button id="vtSelect" class="vt" title="Edit holes / cut-outs: drag them around on the glass">✥ Holes</button>
+          <button id="vtRail" class="vt" title="Draw a handrail: click a start point, then an end point">✎ Rail</button>
         </div>
         <div class="vt-stampwrap">
           <button id="vtStamp" class="vt" title="Stamp holes & cut-outs onto panels">Stamp ▾</button>
@@ -95,6 +96,7 @@
   <div id="scrim" class="scrim"></div>
   <div id="modal" class="modal"></div>
   <input id="fileInput" type="file" accept="application/json,.json" hidden />
+  <datalist id="handle-sizes"><option value="6"><option value="8"><option value="12"><option value="24"><option value="36"></datalist>
 
   <noscript><p style="padding:2rem;text-align:center">This app needs JavaScript enabled.</p></noscript>
   <script type="module" src="js/app.js"></script>

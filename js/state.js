@@ -25,6 +25,7 @@ const defaultPricing = () => ({
   rates: Object.fromEntries(GLASS_ORDER.map((k) => [k, GLASS_TYPES[k].defaultRate])),
   featureCosts: defaultFeatureCosts(),
   temperPerSqFt: 0,
+  railPerFt: 0,            // handrail price per linear foot
   markupPct: 0,
 });
 
@@ -33,12 +34,26 @@ export const makePanel = (over = {}) => ({
   name: '',
   width: 36, height: 42, thickness: 0.5,
   widthTop: 36, heightRight: 42, baseRise: 0, customShape: false, // tapered / rake / stair-parallelogram panels
+  poly: false, points: null, // freeform polygon outline ([[x-from-centre, y-up], …]); overrides the quad math
   glassType: 'clear',
   features: [],            // placed holes / cut-outs / spigots
   baseShoe: false,         // bottom mounting shoe (raises the glass) — per panel
   channels: { top: false, bottom: false, left: false, right: false }, // edge channels (showers)
+  channelThickness: 1.5,   // visible width of the edge channel (in)
   x: 0, y: 0, z: 0, rotationY: 0, // ground position + elevation (in) + heading (deg)
   locked: false,
+  ...over,
+});
+
+/** A handrail: a straight tube between two ground points, at a given height
+    (with optional stair rise at the far end). */
+export const makeRail = (over = {}) => ({
+  id: uid('rail'),
+  ax: 0, az: 0, bx: 36, bz: 0,   // ground endpoints (in)
+  height: 42, rise: 0,           // top height at A (in); B is height + rise (stairs)
+  profile: 'round',              // 'round' | 'square'
+  size: 1.5,                     // tube diameter / side (in)
+  posts: false,                  // drop vertical end posts to the ground
   ...over,
 });
 
@@ -53,13 +68,18 @@ function normalize(p) {
   const hadFeatureCosts = !!p.pricing.featureCosts;
   p.pricing.featureCosts = { ...defaultFeatureCosts(), ...(p.pricing.featureCosts || {}) };
   if (!hadFeatureCosts && p.pricing.holeCost != null) p.pricing.featureCosts.hole = p.pricing.holeCost;
+  if (p.pricing.railPerFt == null) p.pricing.railPerFt = 0;
   p.hardware = Array.isArray(p.hardware) ? p.hardware : [];
+  p.rails = Array.isArray(p.rails) ? p.rails.map((r) => ({ ...makeRail(), ...r })) : [];
   (p.panels || []).forEach((pn) => {
     if (pn.y == null) pn.y = 0;
     if (pn.widthTop == null) pn.widthTop = pn.width;
     if (pn.heightRight == null) pn.heightRight = pn.height;
     if (pn.baseRise == null) pn.baseRise = 0;
     if (pn.customShape == null) pn.customShape = false;
+    if (pn.poly == null) pn.poly = false;
+    if (!Array.isArray(pn.points)) pn.points = null;
+    if (pn.channelThickness == null) pn.channelThickness = 1.5;
     if (pn.baseShoe == null) pn.baseShoe = !!(p.options && p.options.baseShoe); // inherit old global
     if (!pn.channels) pn.channels = { top: false, bottom: false, left: false, right: false };
     if (!Array.isArray(pn.features)) {
@@ -70,6 +90,7 @@ function normalize(p) {
         pn.features.push(makeFeature('hole', round2(-pn.width / 2 + 4 + t * (pn.width - 8)), 4));
       }
     }
+    (pn.features || []).forEach((f) => { if (f.kind === 'handle' && f.len == null) f.len = 8; }); // ladder-pull length
     delete pn.holes;
   });
   return p;
@@ -86,13 +107,14 @@ export function newProject(name = 'Untitled Design') {
     options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, topRail: false, units: 'ftin' },
     area: { width: 0, depth: 0 }, // optional work-area footprint drawn on the ground (0 = off)
     panels: [], // blank canvas
+    rails: [],  // handrails (two-point tubes)
     hardware: [], // bill of materials
     pricing: defaultPricing(),
   };
 }
 
 // ---------------------------------------------------------------------------
-export const state = { project: null, selectedPanelId: null, selectedPanelIds: [] };
+export const state = { project: null, selectedPanelId: null, selectedPanelIds: [], selectedRailId: null };
 
 const subscribers = new Set();
 export const subscribe = (fn) => { subscribers.add(fn); return () => subscribers.delete(fn); };
@@ -118,7 +140,7 @@ export function listProjects() { return Object.values(readLib()).sort((a, b) => 
 export function loadProject(id) {
   const lib = readLib();
   if (!lib[id]) return false;
-  state.project = normalize(lib[id]); state.selectedPanelId = null; state.selectedPanelIds = [];
+  state.project = normalize(lib[id]); state.selectedPanelId = null; state.selectedPanelIds = []; state.selectedRailId = null;
   localStorage.setItem(LS_ACTIVE, id);
   emit(false); return true;
 }
@@ -128,7 +150,7 @@ export function deleteProject(id) {
   emit(false);
 }
 export function setActiveProject(project) {
-  state.project = normalize(project); state.selectedPanelId = null; state.selectedPanelIds = []; saveActive(); emit(false);
+  state.project = normalize(project); state.selectedPanelId = null; state.selectedPanelIds = []; state.selectedRailId = null; saveActive(); emit(false);
 }
 export function init() {
   const lib = readLib();
@@ -243,6 +265,33 @@ export function setFeaturePos(panelId, featId, x, y, save = true) {
   const p = findPanel(panelId); if (!p) return;
   const f = (p.features || []).find((z) => z.id === featId); if (!f) return;
   f.x = x; f.y = y;
+  if (save) emit(); else subscribers.forEach((fn) => fn(state.project));
+}
+
+// ---- handrails ------------------------------------------------------------
+export function findRail(id) { return (state.project.rails || []).find((r) => r.id === id) || null; }
+
+export function addRail(over = {}) {
+  state.project.rails = state.project.rails || [];
+  const r = makeRail(over);
+  state.project.rails.push(r);
+  state.selectedRailId = r.id;
+  emit();
+  return r.id;
+}
+export function updateRail(id, patch) {
+  const r = findRail(id); if (!r) return;
+  Object.assign(r, patch); emit();
+}
+export function removeRail(id) {
+  state.project.rails = (state.project.rails || []).filter((r) => r.id !== id);
+  if (state.selectedRailId === id) state.selectedRailId = null;
+  emit();
+}
+/** Live endpoint drag from the 3D view. `save` persists (drag end). */
+export function setRailEndpoint(id, end, x, z, save = true) {
+  const r = findRail(id); if (!r) return;
+  if (end === 'a') { r.ax = x; r.az = z; } else { r.bx = x; r.bz = z; }
   if (save) emit(); else subscribers.forEach((fn) => fn(state.project));
 }
 

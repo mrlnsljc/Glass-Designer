@@ -11,6 +11,7 @@ import { quote, money, len, areaSqft } from './pricing.js';
 import { glassType } from './glassTypes.js';
 import { libraryName } from './hardware.js';
 import { planSVG } from './planView.js';
+import { panelDims } from './geometry.js';
 
 const stamp = () => new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 const safe = (s) => (s || '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'design';
@@ -38,8 +39,8 @@ function triggerDownload(url, filename) {
 export function printReport(project, renderDataURL, { pricing = true, panelImages = [] } = {}) {
   const q = quote(project);
   const c = project.client || {};
-  const dimOf = (p) => p.customShape ? `${len(p.width)}↔${len(p.widthTop ?? p.width)}` : len(p.width);
-  const htOf = (p) => p.customShape ? `${len(p.height)}↕${len(p.heightRight ?? p.height)}` : len(p.height);
+  const dimOf = (p) => p.poly ? `${len(panelDims(p).wMax)} ⬡` : p.customShape ? `${len(p.width)}↔${len(p.widthTop ?? p.width)}` : len(p.width);
+  const htOf = (p) => p.poly ? len(panelDims(p).hMax) : p.customShape ? `${len(p.height)}↕${len(p.heightRight ?? p.height)}` : len(p.height);
   const rows = q.rows.map((r) => {
     const gt = glassType(r.panel.glassType);
     return `<tr>
@@ -58,6 +59,15 @@ export function printReport(project, renderDataURL, { pricing = true, panelImage
   const hwRows = q.hardwareRows.map((r) => `<tr>
       <td>${esc(r.line.name)}</td><td>${esc(libraryName(r.line.lib))}</td>
       <td class="c">${r.line.qty}</td>${pricing ? `<td class="r">${money(r.line.price)}</td><td class="r">${money(r.total)}</td>` : ''}
+    </tr>`).join('');
+
+  const railRows = q.railRows.map((r, i) => `<tr>
+      <td class="c">R${i + 1}</td>
+      <td class="c">${len(Math.hypot(r.rail.bx - r.rail.ax, r.rail.bz - r.rail.az))}</td>
+      <td class="c">${r.ft.toFixed(2)} ft</td>
+      <td class="c">${len(r.rail.height)}${r.rail.rise ? ` (+${len(r.rail.rise)})` : ''}</td>
+      <td class="c">${r.rail.profile === 'square' ? 'Square' : 'Round'} ${len(r.rail.size)}${r.rail.posts ? ' · posts' : ''}</td>
+      ${pricing ? `<td class="r">${money(r.total)}</td>` : ''}
     </tr>`).join('');
 
   const clientTable = `<table class="client muted">
@@ -90,6 +100,11 @@ export function printReport(project, renderDataURL, { pricing = true, panelImage
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      ${railRows ? `<h2>Handrails</h2>
+      <table class="cut">
+        <thead><tr><th class="c">#</th><th class="c">Run</th><th class="c">Length</th><th class="c">Top height</th><th>Profile</th>${pricing ? '<th class="r">Total</th>' : ''}</tr></thead>
+        <tbody>${railRows}</tbody>
+      </table>` : ''}
       ${hwRows ? `<h2>Hardware</h2>
       <table class="cut">
         <thead><tr><th>Item</th><th>Library</th><th class="c">Qty</th>${pricing ? '<th class="r">Unit</th><th class="r">Total</th>' : ''}</tr></thead>
@@ -99,7 +114,9 @@ export function printReport(project, renderDataURL, { pricing = true, panelImage
         <tr><td>Panels</td><td class="r">${q.panelCount}</td></tr>
         <tr><td>Total glass area</td><td class="r">${q.totalArea.toFixed(2)} sq ft</td></tr>
         <tr><td>Holes / cut-outs</td><td class="r">${q.totalFeatures}</td></tr>
+        ${q.railCount ? `<tr><td>Handrail</td><td class="r">${q.railFt.toFixed(2)} ft</td></tr>` : ''}
         ${pricing ? `<tr><td>Glass &amp; fabrication</td><td class="r">${money(q.glassSubtotal)}</td></tr>
+        ${q.railSubtotal ? `<tr><td>Handrail</td><td class="r">${money(q.railSubtotal)}</td></tr>` : ''}
         ${q.hardwareSubtotal ? `<tr><td>Hardware</td><td class="r">${money(q.hardwareSubtotal)}</td></tr>` : ''}
         ${q.markup ? `<tr><td>Markup (${project.pricing.markupPct}%)</td><td class="r">${money(q.markup)}</td></tr>` : ''}
         <tr class="grand"><td>Total</td><td class="r">${money(q.total)}</td></tr>` : ''}
@@ -131,6 +148,7 @@ export function printReport(project, renderDataURL, { pricing = true, panelImage
     .totals td{padding:3px 6px}.totals .grand td{font-weight:700;font-size:15px;border-top:2px solid #111827}
     .plan-bg{fill:#f8fafc;stroke:#e2e8f0;stroke-width:1}
     .plan-panel{stroke-width:5;stroke-linecap:round}.plan-code{fill:#374151;font-size:11px;font-weight:600}
+    .plan-rail{stroke:#d97706;stroke-width:2.5;stroke-dasharray:5 4;stroke-linecap:round}
     .plan-empty{fill:#94a3b8;font-size:12px}
     @media print{.sheet{padding:12mm}}
   </style></head><body>

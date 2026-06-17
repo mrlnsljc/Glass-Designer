@@ -7,7 +7,7 @@
      online load the app keeps working with no connection.
    Bump CACHE_VERSION to force clients onto new assets.
    ============================================================================= */
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v11';
 const SHELL = `grd-shell-${CACHE_VERSION}`;
 const CDN = `grd-cdn-${CACHE_VERSION}`;
 
@@ -27,6 +27,7 @@ const SHELL_ASSETS = [
   './js/planView.js',
   './js/ui.js',
   './js/exporter.js',
+  './js/polyEditor.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-180.png',

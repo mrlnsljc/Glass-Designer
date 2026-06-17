@@ -18,6 +18,7 @@ import { makeFeature, featureType } from './features.js';
 import { panelDims } from './geometry.js';
 import { allLibraries, saveCustomItem } from './hardware.js';
 import { downloadImage, printReport } from './exporter.js';
+import { openPolyEditor } from './polyEditor.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -35,6 +36,9 @@ function boot() {
   scene.onStamp(onSceneStamp);
   scene.onFeatureMove(onSceneFeatureMove);
   scene.onFeatureSelect(onSceneFeatureSelect);
+  scene.onRailSelect(onSceneRailSelect);
+  scene.onRailCreate(onSceneRailCreate);
+  scene.onRailEndpoint(onSceneRailEndpoint);
 
   wireHeader(); wireViewTools(); wireControls();
 
@@ -47,7 +51,7 @@ function boot() {
 function renderAll() { renderControls(); renderScene({ fit: false }); renderHeader(); }
 
 function renderControls() {
-  controlsEl.innerHTML = controlsHTML(state.project, state.selectedPanelId);
+  controlsEl.innerHTML = controlsHTML(state.project, state.selectedPanelId, state.selectedRailId);
   (state.selectedPanelIds || []).forEach((id) => cardFor(id)?.classList.add('panel-card--sel'));
   renderTotals(); renderPlan();
 }
@@ -55,6 +59,7 @@ function renderScene({ fit = false } = {}) {
   setUnitMode(state.project.options.units);
   scene.render(state.project);
   scene.select(state.selectedPanelIds);
+  scene.selectRail(state.selectedRailId);
   if (fit) scene.fit();
   renderPlan();
 }
@@ -88,6 +93,13 @@ function onControlInput(e) {
     if (key !== 'name') { renderTotals(); refreshHwLineTotal(id); }
     return;
   }
+
+  // handrail numeric fields (height / rise / size / endpoints)
+  if (el.dataset.rail && f?.startsWith('rail.')) {
+    store.updateRail(el.dataset.rail, { [f.slice(5)]: num(el.value, 0) });
+    renderScene(); renderTotals();
+    return;
+  }
   if (!f) return;
 
   if (f === 'name') { state.project.name = el.value; renderHeader(); emit(); return; }
@@ -102,6 +114,7 @@ function onControlInput(e) {
     return;
   }
   if (f === 'panel.thickness') { store.updatePanel(el.dataset.panel, { thickness: num(el.value, 0.5) }); renderScene(); return; }
+  if (f === 'panel.channelThickness') { store.updatePanel(el.dataset.panel, { channelThickness: Math.max(0.25, num(el.value, 1.5)) }); renderScene(); return; }
   if (f === 'panel.x' || f === 'panel.z' || f === 'panel.rotationY' || f === 'panel.y') {
     store.updatePanel(el.dataset.panel, { [f.split('.')[1]]: num(el.value, 0) });
     renderScene();
@@ -125,11 +138,21 @@ function onControlInput(e) {
 
   if (f === 'rate') { state.project.pricing.rates[el.dataset.glass] = num(el.value); emit(); renderTotals(); return; }
   if (f === 'featCost') { state.project.pricing.featureCosts[el.dataset.fkey] = num(el.value); emit(); renderTotals(); return; }
-  if (['temperPerSqFt', 'markupPct'].includes(f)) { state.project.pricing[f] = num(el.value); emit(); renderTotals(); return; }
+  if (['temperPerSqFt', 'markupPct', 'railPerFt'].includes(f)) { state.project.pricing[f] = num(el.value); emit(); renderTotals(); return; }
 }
 
 function onControlChange(e) {
   const el = e.target;
+  if (el.dataset.railfield === 'profile') {
+    store.updateRail(el.dataset.rail, { profile: el.value }); renderScene();
+    return;
+  }
+  if (el.dataset.railposts !== undefined) {
+    store.updateRail(el.dataset.rail, { posts: el.checked });
+    el.closest('.ch-tog')?.classList.toggle('on', el.checked);
+    renderScene();
+    return;
+  }
   if (el.dataset.optUnits !== undefined) {
     state.project.options.units = el.value; emit();
     setUnitMode(el.value); renderScene();
@@ -174,7 +197,7 @@ function onControlChange(e) {
 
 function onControlClick(e) {
   const btn = e.target.closest('[data-act]'); if (!btn) return;
-  const act = btn.dataset.act, id = btn.dataset.panel;
+  const act = btn.dataset.act, id = btn.dataset.panel, railId = btn.dataset.rail;
   switch (act) {
     case 'addPanel': store.addPanel(); renderControls(); renderScene({ fit: true }); break;
     case 'addRun': addRun(); break;
@@ -219,8 +242,59 @@ function onControlClick(e) {
       if (e.target.closest('input,select,button,textarea')) return;
       selectPanel(id, e.shiftKey);
       break;
+    case 'editPoly': openPanelPolyEditor(id); break;
+    case 'clearPoly':
+      store.updatePanel(id, { poly: false, points: null });
+      renderControls(); renderScene();
+      break;
+    case 'drawRail': setTool('rail'); break;
+    case 'removeRail': store.removeRail(railId); renderControls(); renderScene(); break;
+    case 'selectRail':
+      if (e.target.closest('input,select,button,textarea')) return;
+      selectRail(railId);
+      break;
   }
 }
+
+// ---- custom polygon outline ------------------------------------------------
+function openPanelPolyEditor(id) {
+  const p = store.findPanel(id); if (!p) return;
+  state.selectedPanelId = id; state.selectedPanelIds = [id];
+  openPolyEditor($('#modal'), { points: p.points, width: p.width, height: p.height, name: p.name || '' }, (points) => {
+    store.updatePanel(id, { poly: true, points, customShape: false });
+    renderControls(); renderScene({ fit: true });
+  });
+}
+
+// ---- handrails -------------------------------------------------------------
+function onSceneRailCreate(ax, az, bx, bz) {
+  if (Math.hypot(bx - ax, bz - az) < 1) return; // ignore a double-click in place
+  store.addRail({ ax, az, bx, bz });
+  state.selectedRailId = state.project.rails[state.project.rails.length - 1].id;
+  renderControls(); renderScene();
+  railCardFor(state.selectedRailId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function onSceneRailSelect(railId) { selectRail(railId); }
+function onSceneRailEndpoint(railId, end, x, z, save) {
+  store.setRailEndpoint(railId, end, x, z, save);
+  const card = railCardFor(railId);
+  if (card) {
+    const set = (f, v) => { const el = card.querySelector(`input[data-field="${f}"]`); if (el && document.activeElement !== el) el.value = v; };
+    set(end === 'a' ? 'rail.ax' : 'rail.bx', round(x));
+    set(end === 'a' ? 'rail.az' : 'rail.bz', round(z));
+  }
+  if (save) { renderControls(); renderTotals(); }
+  renderPlan();
+}
+function selectRail(railId) {
+  state.selectedRailId = railId || null;
+  state.selectedPanelIds = []; state.selectedPanelId = null;
+  scene.select([]); scene.selectRail(state.selectedRailId);
+  controlsEl.querySelectorAll('.panel-card--sel').forEach((n) => n.classList.remove('panel-card--sel'));
+  railCardFor(railId)?.classList.add('panel-card--sel');
+  renderPlan();
+}
+const railCardFor = (id) => controlsEl.querySelector(`.panel-card[data-rail="${id}"]`);
 
 // ---- stamping holes / cut-outs from the 3D view ----------------------------
 function onSceneStamp(panelId, kind, x, y) {
@@ -280,6 +354,7 @@ function selectPanel(id, additive) {
     state.selectedPanelIds = [id];
   }
   state.selectedPanelId = state.selectedPanelIds[state.selectedPanelIds.length - 1] || null;
+  if (state.selectedRailId) { state.selectedRailId = null; scene.selectRail(null); }
   scene.select(state.selectedPanelIds);
   controlsEl.querySelectorAll('.panel-card--sel').forEach((n) => n.classList.remove('panel-card--sel'));
   state.selectedPanelIds.forEach((pid) => cardFor(pid)?.classList.add('panel-card--sel'));
@@ -346,6 +421,7 @@ const HINTS = {
   select: 'Holes tool · drag a hole / cut-out to move it around on its glass (panels: use Move / Rotate)',
   move: 'Move tool · click a panel (Shift-click to add more), then drag the gizmo to move them together',
   rotate: 'Rotate tool · click a panel, then drag the ring to spin it',
+  rail: 'Rail tool · click a start point, then an end point to draw a handrail · endpoints snap to panel ends · drag a blue handle to adjust',
 };
 const setHint = (t) => { const h = $('.hint'); if (h) h.textContent = t; };
 
@@ -355,6 +431,7 @@ function setTool(name) {
   $('#vtSelect').classList.toggle('on', name === 'select');
   $('#vtMove').classList.toggle('on', name === 'move');
   $('#vtRotate').classList.toggle('on', name === 'rotate');
+  $('#vtRail').classList.toggle('on', name === 'rail');
   $('#vtStamp').classList.remove('on'); $('#vtStamp').textContent = 'Stamp ▾';
   $$('#stampMenu [data-stamp]').forEach((x) => x.classList.toggle('on', x.dataset.stamp === 'off'));
   setHint(HINTS[name] || HINTS.select);
@@ -363,7 +440,7 @@ function setTool(name) {
 function setStamp(kind) {
   if (kind === 'off') { setTool('move'); return; }
   scene.setTool('stamp', kind);
-  ['vtSelect', 'vtMove', 'vtRotate'].forEach((id) => $('#' + id).classList.remove('on'));
+  ['vtSelect', 'vtMove', 'vtRotate', 'vtRail'].forEach((id) => $('#' + id).classList.remove('on'));
   const btn = $('#vtStamp');
   btn.classList.add('on'); btn.textContent = 'Stamp: ' + featureType(kind).short;
   setHint(`Click a panel to place a ${featureType(kind).name}`);
@@ -375,6 +452,7 @@ function wireViewTools() {
   $('#vtSelect').addEventListener('click', () => setTool('select'));
   $('#vtMove').addEventListener('click', () => setTool('move'));
   $('#vtRotate').addEventListener('click', () => setTool('rotate'));
+  $('#vtRail').addEventListener('click', () => setTool('rail'));
   $('#vtSnap').addEventListener('click', () => {
     state.project.options.snap = !state.project.options.snap; emit();
     scene.setSnap(state.project.options.snap); renderHeader();

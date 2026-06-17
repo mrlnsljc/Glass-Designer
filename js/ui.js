@@ -4,15 +4,16 @@
    ============================================================================= */
 
 import { GLASS_TYPES, GLASS_ORDER } from './glassTypes.js';
-import { FEATURE_TYPES, FEATURE_ORDER, featureType } from './features.js';
+import { FEATURE_TYPES, FEATURE_ORDER, featureType, HANDLE_SIZES } from './features.js';
 import { allLibraries, libraryName } from './hardware.js';
-import { panelDims } from './geometry.js';
-import { quote, money, panelCost, panelLabel, featureFromCorner } from './pricing.js';
+import { panelDims, railLength } from './geometry.js';
+import { quote, money, panelCost, panelLabel, featureFromCorner, len } from './pricing.js';
 
-export function controlsHTML(project, selectedId) {
+export function controlsHTML(project, selectedId, selectedRailId) {
   return [
     jobSection(project),
     panelsSection(project, selectedId),
+    railsSection(project, selectedRailId),
     hardwareSection(project),
     pricingSection(project),
     optionsSection(project),
@@ -49,10 +50,86 @@ function panelsSection(p, selectedId) {
   return section('panels', `Panels${p.panels.length ? ` <span class="count">${p.panels.length}</span>` : ''}`, add + `<div class="panel-list">${list}</div>`, true);
 }
 
+// ---- handrails -------------------------------------------------------------
+function railsSection(p, selectedRailId) {
+  const rails = p.rails || [];
+  const add = `<div class="add-bar">
+      <button class="btn btn--primary btn--sm" data-act="drawRail" title="Click two points in the 3D view to draw a handrail">✎ Draw handrail</button>
+    </div>`;
+  const list = rails.length
+    ? `<div class="rail-list">${rails.map((r, i) => railCard(r, i, selectedRailId)).join('')}</div>`
+    : `<p class="empty-hint">No handrails yet. Click <b>Draw handrail</b> (or the <b>Rail</b> tool above the 3D view), then click a start point and an end point — it connects them with a rail. Endpoints snap to panel ends.</p>`;
+  return section('rails', `Handrails${rails.length ? ` <span class="count">${rails.length}</span>` : ''}`, add + list, false);
+}
+
+function railCard(r, i, selectedRailId) {
+  const dn = `data-rail="${r.id}"`;
+  const sel = r.id === selectedRailId ? 'panel-card--sel' : '';
+  const ft = (railLength(r) / 12);
+  return `<div class="panel-card ${sel}" data-act="selectRail" ${dn}>
+    <div class="pc-head">
+      <span class="pcode" style="--c:#fde68a">R${i + 1}</span>
+      <span class="rail-meta">${len(Math.hypot(r.bx - r.ax, r.bz - r.az))} run · ${ft.toFixed(2)} ft</span>
+      <button class="icon-btn" tabindex="-1" data-act="removeRail" ${dn} title="Delete">✕</button>
+    </div>
+    <div class="pc-dims">
+      ${field('rail.height', round(r.height), r.id, 'Top H', 'in', 0, 0.5, 'rail')}
+      ${field('rail.rise', round(r.rise), r.id, 'Rise', 'in', null, 0.5, 'rail')}
+      ${field('rail.size', round(r.size), r.id, '⌀', 'in', 0.25, 0.125, 'rail')}
+    </div>
+    <div class="pc-dims">
+      ${field('rail.ax', round(r.ax), r.id, 'A x', 'in', null, 0.25, 'rail')}
+      ${field('rail.az', round(r.az), r.id, 'A z', 'in', null, 0.25, 'rail')}
+    </div>
+    <div class="pc-dims">
+      ${field('rail.bx', round(r.bx), r.id, 'B x', 'in', null, 0.25, 'rail')}
+      ${field('rail.bz', round(r.bz), r.id, 'B z', 'in', null, 0.25, 'rail')}
+    </div>
+    <div class="pc-channels">
+      <select class="gsel" data-railfield="profile" ${dn} style="flex:0 0 auto;width:auto">
+        <option value="round" ${r.profile !== 'square' ? 'selected' : ''}>Round</option>
+        <option value="square" ${r.profile === 'square' ? 'selected' : ''}>Square</option>
+      </select>
+      <label class="ch-tog ${r.posts ? 'on' : ''}" title="Drop vertical posts at each end"><input type="checkbox" tabindex="-1" data-railposts ${dn} ${r.posts ? 'checked' : ''}>End posts</label>
+    </div>
+  </div>`;
+}
+
 function panelCard(p, pn, i, selectedId) {
   const dn = `data-panel="${pn.id}"`;
   const cost = panelCost(pn, p.pricing).total;
   const sel = pn.id === selectedId ? 'panel-card--sel' : '';
+  const d = panelDims(pn);
+  // Freeform polygon panels swap the width/height/quad inputs for a compact readout.
+  const dims = pn.poly
+    ? `<div class="pc-dims">
+        ${field('panel.thickness', pn.thickness ?? 0.5, pn.id, 'Thk', 'in', 0.0625, 0.0625)}
+        <span class="poly-meta">⬡ ${pn.points.length} pts · ${len(d.wMax)} × ${len(d.hMax)}</span>
+      </div>
+      <div class="pc-shape">
+        <button class="btn btn--xs" data-act="editPoly" ${dn}>⬡ Edit polygon…</button>
+        <button class="btn btn--xs" data-act="clearPoly" ${dn}>Reset to rectangle</button>
+      </div>`
+    : `<div class="pc-dims">
+        ${field('panel.width', pn.width, pn.id, pn.customShape ? 'W↓' : 'W', 'in', 1, 0.125)}
+        ${field('panel.height', pn.height, pn.id, pn.customShape ? 'H←' : 'H', 'in', 1, 0.125)}
+        ${field('panel.thickness', pn.thickness ?? 0.5, pn.id, 'Thk', 'in', 0.0625, 0.0625)}
+      </div>
+      ${pn.customShape ? `<div class="pc-dims">
+        ${field('panel.widthTop', pn.widthTop ?? pn.width, pn.id, 'W↑', 'in', 1, 0.125)}
+        ${field('panel.heightRight', pn.heightRight ?? pn.height, pn.id, 'H→', 'in', 1, 0.125)}
+        ${field('panel.baseRise', pn.baseRise ?? 0, pn.id, 'Rise', 'in', null, 0.125)}
+      </div>
+      <p class="feats-hint">Stair panel: keep W↓=W↑ and H←=H→, then set <b>Rise</b> to how much the right side climbs across the panel (negative = down to the right).</p>` : ''}
+      <div class="pc-shape">
+        <label class="chk chk--sm"><input type="checkbox" data-field="panel.customShape" data-panel="${pn.id}" ${pn.customShape ? 'checked' : ''}> Tapered / stair shape</label>
+        <button class="btn btn--xs" data-act="editPoly" ${dn} title="Draw any outline (e.g. an angled or stepped panel)">⬡ Custom polygon…</button>
+      </div>`;
+  const channels = pn.poly ? '' : `<div class="pc-channels">
+      <span class="ch-lbl">Channels</span>
+      ${chTog(pn, 'top', 'Top')}${chTog(pn, 'bottom', 'Bottom')}${chTog(pn, 'left', 'Left')}${chTog(pn, 'right', 'Right')}
+      <label class="ch-thk" title="Channel thickness (visible width)"><span>Thk</span><input class="num" type="number" min="0.25" step="0.125" value="${pn.channelThickness ?? 1.5}" data-field="panel.channelThickness" data-panel="${pn.id}"><i>in</i></label>
+    </div>`;
   return `<div class="panel-card ${sel}" data-act="selectPanel" ${dn}>
     <div class="pc-head">
       <span class="pcode" style="--c:${GLASS_TYPES[pn.glassType]?.swatch}">${esc(panelLabel(pn, i))}</span>
@@ -67,27 +144,15 @@ function panelCard(p, pn, i, selectedId) {
       </select>
       <span class="pcost">${money(cost)}</span>
     </div>
-    <div class="pc-dims">
-      ${field('panel.width', pn.width, pn.id, pn.customShape ? 'W↓' : 'W', 'in', 1, 0.125)}
-      ${field('panel.height', pn.height, pn.id, pn.customShape ? 'H←' : 'H', 'in', 1, 0.125)}
-      ${field('panel.thickness', pn.thickness ?? 0.5, pn.id, 'Thk', 'in', 0.0625, 0.0625)}
-    </div>
-    ${pn.customShape ? `<div class="pc-dims">
-      ${field('panel.widthTop', pn.widthTop ?? pn.width, pn.id, 'W↑', 'in', 1, 0.125)}
-      ${field('panel.heightRight', pn.heightRight ?? pn.height, pn.id, 'H→', 'in', 1, 0.125)}
-      ${field('panel.baseRise', pn.baseRise ?? 0, pn.id, 'Rise', 'in', null, 0.125)}
-    </div>
-    <p class="feats-hint">Stair panel: keep W↓=W↑ and H←=H→, then set <b>Rise</b> to how much the right side climbs across the panel (negative = down to the right).</p>` : ''}
-    <label class="chk chk--sm"><input type="checkbox" data-field="panel.customShape" data-panel="${pn.id}" ${pn.customShape ? 'checked' : ''}> Custom / tapered / stair shape</label>
+    ${dims}
     <div class="pc-pos">
       ${field('panel.x', round(pn.x), pn.id, 'X', 'in', null, 0.25)}
       ${field('panel.z', round(pn.z), pn.id, 'Z', 'in', null, 0.25)}
       ${field('panel.rotationY', round(pn.rotationY), pn.id, '∠', '°', null, 1)}
       ${field('panel.y', round(pn.y), pn.id, 'Elev', 'in', 0, 0.25)}
     </div>
+    ${channels}
     <div class="pc-channels">
-      <span class="ch-lbl">Channels</span>
-      ${chTog(pn, 'top', 'Top')}${chTog(pn, 'bottom', 'Bottom')}${chTog(pn, 'left', 'Left')}${chTog(pn, 'right', 'Right')}
       <label class="ch-tog ${pn.baseShoe ? 'on' : ''}" title="Bottom mounting shoe (raises the glass)"><input type="checkbox" tabindex="-1" data-baseshoe data-panel="${pn.id}" ${pn.baseShoe ? 'checked' : ''}>Base shoe</label>
     </div>
     ${featuresBlock(pn)}
@@ -118,7 +183,10 @@ function featureRow(pn, f) {
   // position + size inputs are bounded to THIS panel's own dimensions
   const size = t.shape === 'circle'
     ? `${fnum('feat.d', f.d ?? t.d, dn, '⌀', 0.0625, round(Math.min(d.wBottom, d.hMax)))}`
-    : `${fnum('feat.w', f.w ?? t.w, dn, 'w', 0.0625, round(d.wBottom))}${fnum('feat.h', f.h ?? t.h, dn, 'h', 0.0625, round(d.hMax))}`;
+    : t.shape === 'handle'
+      ? `<label class="fnum" title="Standard pulls: ${HANDLE_SIZES.join('/')}″"><span>len</span>
+          <input class="num" type="number" min="1" max="${round(d.hMax)}" step="1" list="handle-sizes" value="${f.len ?? t.len}" data-field="feat.len" ${dn}></label>`
+      : `${fnum('feat.w', f.w ?? t.w, dn, 'w', 0.0625, round(d.wBottom))}${fnum('feat.h', f.h ?? t.h, dn, 'h', 0.0625, round(d.hMax))}`;
   return `<div class="feat-row" ${dn}>
     <span class="feat-tag">${t.short}</span>
     ${fnum('feat.fromLeft', round(c.fromLeft), dn, 'L', 0, round(d.wBottom))}
@@ -128,10 +196,11 @@ function featureRow(pn, f) {
   </div>`;
 }
 
-function field(name, value, panelId, label, suffix, min, step) {
+function field(name, value, id, label, suffix, min, step, kind = 'panel') {
   const minAttr = min != null ? `min="${min}"` : '';
+  const idAttr = kind === 'rail' ? `data-rail="${id}"` : `data-panel="${id}"`;
   return `<label class="dim"><span>${label}</span>
-    <input class="num" type="number" ${minAttr} step="${step}" value="${value}" data-field="${name}" data-panel="${panelId}">${suffix ? `<i>${suffix}</i>` : ''}</label>`;
+    <input class="num" type="number" ${minAttr} step="${step}" value="${value}" data-field="${name}" ${idAttr}>${suffix ? `<i>${suffix}</i>` : ''}</label>`;
 }
 function fnum(name, value, dn, label, min, max) {
   const a = (min != null ? `min="${min}" ` : '') + (max != null ? `max="${max}" ` : '');
@@ -196,6 +265,7 @@ function pricingSection(p) {
     ${featRows}
     <div class="grid2">
       <label class="fld"><span>Tempering</span><span class="suffix">$<input class="num" type="number" min="0" step="0.5" value="${r.temperPerSqFt}" data-field="temperPerSqFt">/ft²</span></label>
+      <label class="fld"><span>Handrail</span><span class="suffix">$<input class="num" type="number" min="0" step="0.5" value="${r.railPerFt ?? 0}" data-field="railPerFt">/ft</span></label>
       <label class="fld"><span>Markup</span><span class="suffix"><input class="num" type="number" min="0" step="1" value="${r.markupPct}" data-field="markupPct">%</span></label>
     </div>`, false);
 }
@@ -228,8 +298,9 @@ function optionsSection(p) {
 export function totalsHTML(project) {
   const q = quote(project);
   return `
-    <div class="tot-row"><span>${q.panelCount} panel${q.panelCount !== 1 ? 's' : ''} · ${q.totalArea.toFixed(1)} ft²${q.totalFeatures ? ' · ' + q.totalFeatures + ' cut-outs' : ''}</span></div>
+    <div class="tot-row"><span>${q.panelCount} panel${q.panelCount !== 1 ? 's' : ''} · ${q.totalArea.toFixed(1)} ft²${q.totalFeatures ? ' · ' + q.totalFeatures + ' cut-outs' : ''}${q.railCount ? ' · ' + q.railFt.toFixed(1) + ' ft rail' : ''}</span></div>
     <div class="tot-row"><span>Glass &amp; fab</span><b>${money(q.glassSubtotal)}</b></div>
+    ${q.railSubtotal ? `<div class="tot-row"><span>Handrail</span><b>${money(q.railSubtotal)}</b></div>` : ''}
     ${q.hardwareSubtotal ? `<div class="tot-row"><span>Hardware</span><b>${money(q.hardwareSubtotal)}</b></div>` : ''}
     ${q.markup ? `<div class="tot-row"><span>Markup</span><b>${money(q.markup)}</b></div>` : ''}
     <div class="tot-row tot-grand"><span>Total</span><b>${money(q.total)}</b></div>`;

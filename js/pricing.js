@@ -7,7 +7,7 @@
    ============================================================================= */
 
 import { featureType } from './features.js';
-import { panelArea } from './geometry.js';
+import { panelArea, railLength } from './geometry.js';
 
 export const sqft = (wIn, hIn) => (wIn * hIn) / 144;
 export const areaSqft = (panel) => panelArea(panel) / 144; // real (possibly tapered) area
@@ -36,13 +36,22 @@ export function quote(project) {
   const hardwareRows = (project.hardware || []).map((l) => ({ line: l, total: (l.qty || 0) * (l.price || 0) }));
   const hardwareSubtotal = hardwareRows.reduce((s, r) => s + r.total, 0);
 
-  const subtotal = glassSubtotal + hardwareSubtotal;
+  const railRate = pricing.railPerFt || 0;
+  const railRows = (project.rails || []).map((r) => {
+    const ft = railLength(r) / 12;
+    return { rail: r, ft, total: ft * railRate };
+  });
+  const railFt = railRows.reduce((s, r) => s + r.ft, 0);
+  const railSubtotal = railRows.reduce((s, r) => s + r.total, 0);
+
+  const subtotal = glassSubtotal + hardwareSubtotal + railSubtotal;
   const markup = subtotal * ((pricing.markupPct || 0) / 100);
   return {
-    rows, hardwareRows,
+    rows, hardwareRows, railRows,
     panelCount: (project.panels || []).length,
+    railCount: (project.rails || []).length, railFt,
     totalArea, totalFeatures,
-    glassSubtotal, hardwareSubtotal, subtotal, markup, total: subtotal + markup,
+    glassSubtotal, hardwareSubtotal, railSubtotal, subtotal, markup, total: subtotal + markup,
   };
 }
 

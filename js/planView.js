@@ -40,6 +40,11 @@ export function planSVG(project, { selectedId = null, width = 280, interactive =
     out.push(`<text x="${mx.toFixed(1)}" y="${(my + 3).toFixed(1)}" class="plan-code" data-panel="${p.id}" text-anchor="middle">${esc(panelLabel(p, i))}</text>`);
   });
 
+  // Handrails: dashed amber centrelines over the plan.
+  (project.rails || []).forEach((r) => {
+    out.push(`<line x1="${sx(r.ax).toFixed(1)}" y1="${sy(r.az).toFixed(1)}" x2="${sx(r.bx).toFixed(1)}" y2="${sy(r.bz).toFixed(1)}" class="plan-rail"/>`);
+  });
+
   out.push('</svg>');
   return out.join('');
 }

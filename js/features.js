@@ -14,12 +14,15 @@ export const FEATURE_TYPES = {
   hole:    { id: 'hole',   name: 'Hole / Standoff', short: '⌀',  shape: 'circle', d: 0.5,        costKey: 'hole' },
   spigot:  { id: 'spigot', name: 'Spigot (base)',   short: 'SPG', shape: 'spigot', w: 2, h: 6,   costKey: 'spigot', snapBottom: true },
   hinge:   { id: 'hinge',  name: 'Hinge cut-out',   short: 'HNG', shape: 'rect',   w: 4,  h: 5,   costKey: 'hinge' },
-  handle:  { id: 'handle', name: 'Handle / Pull',   short: 'HDL', shape: 'circle', d: 0.75,       costKey: 'handle' },
+  handle:  { id: 'handle', name: 'Handle / Pull',   short: 'HDL', shape: 'handle', len: 8, dia: 0.75, costKey: 'handle' },
   lock:    { id: 'lock',   name: 'Lock / Latch',    short: 'LCK', shape: 'rect',   w: 0.9, h: 2.4, costKey: 'lock' },
   notch:   { id: 'notch',  name: 'Corner notch',    short: 'NTC', shape: 'rect',   w: 3,  h: 3,   costKey: 'notch' },
 };
 
 export const FEATURE_ORDER = ['hole', 'spigot', 'hinge', 'handle', 'lock', 'notch'];
+
+/** Standard ladder-pull / handle lengths (in) offered in the UI. */
+export const HANDLE_SIZES = [6, 8, 12, 24, 36];
 
 export const featureType = (kind) => FEATURE_TYPES[kind] || FEATURE_TYPES.hole;
 
@@ -30,6 +33,8 @@ export const defaultFeatureCosts = () => ({ hole: 6, spigot: 28, hinge: 18, hand
 export function makeFeature(kind, x = 0, y = 0) {
   const t = featureType(kind);
   const f = { id: 'ft_' + Math.random().toString(36).slice(2, 8), kind, x, y };
-  if (t.shape === 'circle') f.d = t.d; else { f.w = t.w; f.h = t.h; }
+  if (t.shape === 'circle') f.d = t.d;
+  else if (t.shape === 'handle') f.len = t.len;
+  else { f.w = t.w; f.h = t.h; }
   return f;
 }

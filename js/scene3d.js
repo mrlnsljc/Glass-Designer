@@ -26,20 +26,24 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { glassType } from './glassTypes.js';
 import { featureType } from './features.js';
 import { panelLabel, len, getUnitMode } from './pricing.js';
-import { BASE_H, panelCorners, panelDims } from './geometry.js';
+import { BASE_H, panelCorners, panelDims, panelEndpoints } from './geometry.js';
 
 let renderer, labelRenderer, scene, world, container;
 let orbit, gizmo, perspCam, orthoCam, activeCam;
-let grid, areaGroup;
+let grid, areaGroup, railGroup;
 let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = true, showGrid = true;
 let needsRender = true, raf = 0;
 let project = null;
 let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
+let railSelectCb = null, railCreateCb = null, railEndpointCb = null;
 let draggingId = null, selectedId = null, selectedFeatureId = null;
 let selectedIds = [], multiIds = [], pivot;
 const pivotLast = new THREE.Vector3();
 let featurePickMeshes = [];
+let railPickMeshes = [], railHandleMeshes = [], selectedRailId = null;
+let railPending = null, railPreview = null; // two-click handrail drawing
 let drag = null; // active direct-manipulation drag (select tool)
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 const entries = new Map(); // panelId -> { group, glass, edges, chip, sig }
 const contentBox = new THREE.Box3();
@@ -92,6 +96,8 @@ export function init(el) {
   scene.add(grid);
   areaGroup = new THREE.Group();
   scene.add(areaGroup);
+  railGroup = new THREE.Group();
+  scene.add(railGroup);
 
   perspCam = new THREE.PerspectiveCamera(42, w / h, 1, 100000);
   orthoCam = new THREE.OrthographicCamera(-w, w, h, -h, -100000, 100000);
@@ -175,6 +181,7 @@ export function render(proj) {
     }
   }
   buildWorkArea();
+  buildRails();
   refreshSelection();
   recomputeContentBox();
   setSnap(snap);
@@ -202,10 +209,112 @@ function buildWorkArea() {
   const dl = makeDimText(len(a.depth), th); dl.rotation.x = -Math.PI / 2; dl.rotation.z = Math.PI / 2; dl.position.set(hx + th, y + 0.1, 0); areaGroup.add(dl);
 }
 
+// ---------------------------------------------------------------------------
+//  Handrails (two-point tubes) — rebuilt wholesale each render (few of them).
+// ---------------------------------------------------------------------------
+const railSelMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.3, metalness: 0.6 });
+const _up = new THREE.Vector3(0, 1, 0);
+
+function clearGroup(g) {
+  while (g.children.length) {
+    const c = g.children.pop();
+    c.geometry?.dispose?.();
+    if (c.material && c.material !== railSelMat) (Array.isArray(c.material) ? c.material : [c.material]).forEach((m) => m.dispose?.());
+    if (c.element && c.element.parentNode) c.element.parentNode.removeChild(c.element);
+  }
+}
+
+function buildRails() {
+  if (!railGroup) return;
+  clearGroup(railGroup);
+  railPickMeshes = []; railHandleMeshes = [];
+  const rails = (project && project.rails) || [];
+  for (const r of rails) {
+    const sel = r.id === selectedRailId;
+    const hA = r.height, hB = r.height + (r.rise || 0);
+    const A = new THREE.Vector3(r.ax, hA, r.az), B = new THREE.Vector3(r.bx, hB, r.bz);
+    const dir = B.clone().sub(A); const L = dir.length() || 1;
+    const mid = A.clone().add(B).multiplyScalar(0.5);
+    const quat = new THREE.Quaternion().setFromUnitVectors(_up, dir.clone().normalize());
+    const s = Math.max(0.25, r.size || 1.5);
+    const mat = sel ? railSelMat : metalMat();
+
+    const barGeo = r.profile === 'square'
+      ? new THREE.BoxGeometry(s, L, s)
+      : new THREE.CylinderGeometry(s / 2, s / 2, L, 18);
+    const bar = new THREE.Mesh(barGeo, mat);
+    bar.position.copy(mid); bar.quaternion.copy(quat); railGroup.add(bar);
+
+    if (r.posts) {
+      for (const [px, pz, ph] of [[r.ax, r.az, hA], [r.bx, r.bz, hB]]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.45, s * 0.45, ph, 12), mat);
+        post.position.set(px, ph / 2, pz); railGroup.add(post);
+      }
+    }
+
+    // fat transparent hit cylinder for easy clicking
+    const hit = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(s, 3), Math.max(s, 3), L, 8), hitMat);
+    hit.position.copy(mid); hit.quaternion.copy(quat);
+    hit.userData = { railId: r.id, railHit: true };
+    railGroup.add(hit); railPickMeshes.push(hit);
+
+    // endpoint drag handles (only interactive while the Rail tool is active)
+    if (tool === 'rail') {
+      for (const [end, p] of [['a', A], ['b', B]]) {
+        const handle = new THREE.Mesh(new THREE.SphereGeometry(Math.max(s, 2.4), 12, 12),
+          new THREE.MeshBasicMaterial({ color: sel ? 0x1d4ed8 : 0x2563eb }));
+        handle.position.copy(p);
+        handle.userData = { railId: r.id, end, railHandle: true };
+        railGroup.add(handle); railHandleMeshes.push(handle);
+      }
+    }
+  }
+}
+
+// Ground point under the cursor, snapped to grid + nearby panel/rail endpoints.
+function groundPoint(snapEnds = true) {
+  if (!raycaster.ray.intersectPlane(groundPlane, _hitPt)) return null;
+  let x = _hitPt.x, z = _hitPt.z;
+  if (snapEnds) {
+    let best = 5, bx = null, bz = null; // snap within 5"
+    for (const p of (project.panels || [])) {
+      const e = panelEndpoints(p);
+      for (const [ex, ez] of [[e.ax, e.az], [e.bx, e.bz]]) {
+        const dd = Math.hypot(x - ex, z - ez);
+        if (dd < best) { best = dd; bx = ex; bz = ez; }
+      }
+    }
+    if (bx != null) return { x: round(bx), z: round(bz), snapped: true };
+  }
+  if (snap) { x = Math.round(x); z = Math.round(z); }
+  return { x: round(x), z: round(z), snapped: false };
+}
+
+function updateRailPreview() {
+  if (!railPending) { if (railPreview) { railPreview.visible = false; } return; }
+  if (!raycaster.ray.intersectPlane(groundPlane, _hitPt)) return;
+  const g = groundPoint(); if (!g) return;
+  if (!railPreview) {
+    railPreview = new THREE.Line(new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({ color: 0x2563eb, dashSize: 4, gapSize: 3 }));
+    scene.add(railPreview);
+  }
+  const h = 42;
+  railPreview.visible = true;
+  railPreview.geometry.setFromPoints([new THREE.Vector3(railPending.x, h, railPending.z), new THREE.Vector3(g.x, h, g.z)]);
+  railPreview.computeLineDistances();
+  needsRender = true;
+}
+
+function clearRailPending() {
+  railPending = null;
+  if (railPreview) { railPreview.visible = false; needsRender = true; }
+}
+
 const signature = (p, o, i) =>
   [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.baseRise, p.customShape, p.glassType,
-    p.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i), channelSig(p.channels),
-    (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}`).join(',')].join('|');
+    p.poly, JSON.stringify(p.points), p.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i), channelSig(p),
+    (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}:${f.len || ''}`).join(',')].join('|');
 
 function glassGeometry(p) {
   const c = panelCorners(p);
@@ -287,6 +396,17 @@ function addFeatures(g, p, y0) {
         new THREE.MeshStandardMaterial({ color: 0xb6bcc2, roughness: 0.4, metalness: 0.85 }));
       base.position.y = -h / 2 + w * 0.35; mark.add(base); // base plate near the bottom
       hitGeo = new THREE.PlaneGeometry(Math.max(w, 3), Math.max(h, 3));
+    } else if (t.shape === 'handle') {
+      // Vertical ladder pull: a round bar of length f.len standing off the glass on two posts.
+      const L = Math.max(1, f.len || t.len), r = (t.dia || 0.75) / 2;
+      const standoff = halfT + 1.8;             // bar sits ~1.8" proud of the glass face
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 16), metalMat());
+      bar.position.z = standoff; mark.add(bar);  // CylinderGeometry is vertical (along Y) by default
+      for (const sy of [L / 2 - r, -(L / 2 - r)]) { // two posts back to the glass
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.5, r * 0.5, standoff, 12), metalMat());
+        post.rotation.x = Math.PI / 2; post.position.set(0, sy, standoff / 2); mark.add(post);
+      }
+      hitGeo = new THREE.PlaneGeometry(Math.max(r * 2, 2.4), Math.max(L, 3));
     } else if (t.shape === 'circle') {
       const r = (f.d || t.d) / 2;
       for (const z of [halfT, -halfT]) {
@@ -316,21 +436,27 @@ function addFeatures(g, p, y0) {
   return marks;
 }
 
-const CHANNEL_W = 1.4;
-const channelSig = (ch) => ch ? `${ch.top ? 1 : 0}${ch.bottom ? 1 : 0}${ch.left ? 1 : 0}${ch.right ? 1 : 0}` : '0000';
+const CHANNEL_W = 1.5; // default visible width of an edge channel (in)
+const channelSig = (p) => {
+  const ch = p.channels;
+  const tag = ch ? `${ch.top ? 1 : 0}${ch.bottom ? 1 : 0}${ch.left ? 1 : 0}${ch.right ? 1 : 0}` : '0000';
+  return `${tag}@${p.channelThickness ?? CHANNEL_W}`;
+};
 
 // U-channel along the chosen edges (shower / enclosure glass). Each enabled edge
 // gets an aluminium box running corner-to-corner (works on sloped edges too).
+// Edge channels only apply to rectangle/quad panels (not freeform polygons).
 function addChannels(g, p, y0) {
   const ch = p.channels;
-  if (!ch || !(ch.top || ch.bottom || ch.left || ch.right)) return;
+  if (p.poly || !ch || !(ch.top || ch.bottom || ch.left || ch.right)) return;
   const c = panelCorners(p); // [BL, BR, TR, TL] as [x, y]
-  const depth = (p.thickness || 0.5) + 1.8;
+  const w = p.channelThickness ?? CHANNEL_W;
+  const depth = (p.thickness || 0.5) + Math.max(1, w) * 1.2;
   const edges = [['bottom', c[0], c[1]], ['right', c[1], c[2]], ['top', c[2], c[3]], ['left', c[3], c[0]]];
   for (const [name, A, B] of edges) {
     if (!ch[name]) continue;
     const dx = B[0] - A[0], dy = B[1] - A[1];
-    const box = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(dx, dy), CHANNEL_W, depth), metalMat());
+    const box = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(dx, dy), w, depth), metalMat());
     box.position.set((A[0] + B[0]) / 2, y0 + (A[1] + B[1]) / 2, 0);
     box.rotation.z = Math.atan2(dy, dx);
     g.add(box);
@@ -407,6 +533,19 @@ function onDown(e) {
   downXY = { x: e.clientX, y: e.clientY };
   downOnGizmo = !!gizmo.axis;
   drag = null;
+
+  // Rail tool: grab an endpoint handle to drag it; otherwise the click (in onUp)
+  // either selects a rail or drops a point.
+  if (tool === 'rail') {
+    setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+    const hh = railHandleMeshes.length ? raycaster.intersectObjects(railHandleMeshes, false)[0] : null;
+    if (hh) {
+      drag = { type: 'rail', railId: hh.object.userData.railId, end: hh.object.userData.end, handle: hh.object, moved: false };
+      orbit.enabled = false;
+    }
+    return;
+  }
+
   if (tool !== 'select' || downOnGizmo) return; // gizmo / orbit handle it
   setNDC(e); raycaster.setFromCamera(ptr, activeCam);
 
@@ -432,6 +571,21 @@ function onDown(e) {
 }
 
 function onMove(e) {
+  // Rail tool: drag an endpoint, or (between clicks) stretch the preview line.
+  if (tool === 'rail') {
+    setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+    if (drag && drag.type === 'rail') {
+      const g = groundPoint(); if (!g) return;
+      if (downXY && Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 3) drag.moved = true;
+      const r = project.rails.find((x) => x.id === drag.railId);
+      if (r) { if (drag.end === 'a') { r.ax = g.x; r.az = g.z; } else { r.bx = g.x; r.bz = g.z; } }
+      if (railEndpointCb) railEndpointCb(drag.railId, drag.end, g.x, g.z, false);
+      buildRails(); needsRender = true;
+      return;
+    }
+    if (railPending) updateRailPreview();
+    return;
+  }
   if (!drag) return;
   setNDC(e); raycaster.setFromCamera(ptr, activeCam);
   if (!raycaster.ray.intersectPlane(drag.plane, _hitPt)) return;
@@ -449,6 +603,25 @@ function onMove(e) {
 }
 
 function onUp(e) {
+  // Rail tool — commit an endpoint drag, else treat as a click.
+  if (tool === 'rail') {
+    const dr = drag; drag = null; orbit.enabled = true;
+    const d0 = downXY; downXY = null;
+    if (dr && dr.type === 'rail') {
+      if (dr.moved) { const r = project.rails.find((x) => x.id === dr.railId); if (r && railEndpointCb) railEndpointCb(dr.railId, dr.end, dr.end === 'a' ? r.ax : r.bx, dr.end === 'a' ? r.az : r.bz, true); }
+      else if (railSelectCb) railSelectCb(dr.railId);
+      return;
+    }
+    if (d0 && Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 6) return; // an orbit drag
+    setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+    const rhit = railPickMeshes.length ? raycaster.intersectObjects(railPickMeshes, false)[0] : null;
+    if (rhit) { if (railSelectCb) railSelectCb(rhit.object.userData.railId); return; }
+    const g = groundPoint(); if (!g) return;
+    if (!railPending) { railPending = { x: g.x, z: g.z }; updateRailPreview(); }
+    else { const a = railPending; clearRailPending(); if (railCreateCb) railCreateCb(a.x, a.z, g.x, g.z); }
+    return;
+  }
+
   if (drag) {
     const dr = drag; drag = null; downXY = null; orbit.enabled = true;
     if (dr.moved) {
@@ -497,13 +670,22 @@ export function onTransform(cb) { transformCb = cb; }
 export function onStamp(cb) { stampCb = cb; }
 export function onFeatureMove(cb) { featureMoveCb = cb; }
 export function onFeatureSelect(cb) { featureSelectCb = cb; }
+export function onRailSelect(cb) { railSelectCb = cb; }
+export function onRailCreate(cb) { railCreateCb = cb; }
+export function onRailEndpoint(cb) { railEndpointCb = cb; }
 
-/** Active tool: 'select' | 'move' | 'rotate' | 'stamp'. */
+/** Highlight a handrail (or null). Rebuilds the rail group so the colour swaps. */
+export function selectRail(id) { selectedRailId = id || null; buildRails(); needsRender = true; }
+
+/** Active tool: 'select' | 'move' | 'rotate' | 'stamp' | 'rail'. */
 export function setTool(t, kind) {
+  const prev = tool;
   tool = t;
   if (kind) stampKind = kind;
-  if (t === 'stamp') gizmo.detach(); else refreshSelection();
-  if (renderer) renderer.domElement.style.cursor = (t === 'stamp') ? 'crosshair' : 'default';
+  if (t !== 'rail') clearRailPending();           // leaving the rail tool drops a half-drawn line
+  if (t === 'stamp' || t === 'rail') gizmo.detach(); else refreshSelection();
+  if (prev === 'rail' || t === 'rail') buildRails(); // show/hide endpoint handles
+  if (renderer) renderer.domElement.style.cursor = (t === 'stamp' || t === 'rail') ? 'crosshair' : 'default';
   needsRender = true;
 }
 export function getTool() { return tool; }
@@ -545,6 +727,7 @@ export function setGrid(on) { showGrid = on; if (grid) grid.visible = on; needsR
 function recomputeContentBox() {
   contentBox.makeEmpty();
   for (const e of entries.values()) if (e.glass) contentBox.expandByObject(e.group);
+  if (railGroup && railGroup.children.length) contentBox.expandByObject(railGroup);
   const a = project && project.area;
   if (a && a.width > 0 && a.depth > 0) {
     contentBox.expandByPoint(new THREE.Vector3(-a.width / 2, 0, -a.depth / 2));
@@ -633,8 +816,8 @@ const disposeDims = (arr) => arr.forEach((m) => { m.geometry.dispose(); m.materi
 export function snapshotPanels({ scale = 2 } = {}) {
   if (!project || !project.panels.length) return [];
   const out = [];
-  const gv = grid.visible, sv = gizmo.visible, ld = labelRenderer.domElement.style.display;
-  grid.visible = false; gizmo.visible = false; labelRenderer.domElement.style.display = 'none';
+  const gv = grid.visible, sv = gizmo.visible, ld = labelRenderer.domElement.style.display, rv = railGroup.visible;
+  grid.visible = false; gizmo.visible = false; railGroup.visible = false; labelRenderer.domElement.style.display = 'none';
   for (const e of entries.values()) e.group.visible = false;
 
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -100000, 100000);
@@ -665,7 +848,7 @@ export function snapshotPanels({ scale = 2 } = {}) {
   });
 
   for (const e of entries.values()) e.group.visible = true;
-  grid.visible = gv; gizmo.visible = sv; labelRenderer.domElement.style.display = ld;
+  grid.visible = gv; gizmo.visible = sv; railGroup.visible = rv; labelRenderer.domElement.style.display = ld;
   resize();
   return out;
 }
