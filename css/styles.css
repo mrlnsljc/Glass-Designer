@@ -75,6 +75,17 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
   padding: 6px; display: none; z-index: 40;
 }
 .menu.open { display: block; }
+
+/* ---- account + sync status ----------------------------------------------- */
+#btnAccount { display: inline-flex; align-items: center; gap: 6px; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex: none; box-shadow: 0 0 0 1px rgba(0,0,0,.06); }
+.sync-dot.sync-synced { background: #16a34a; }
+.sync-dot.sync-syncing { background: #f59e0b; animation: syncpulse 1s ease-in-out infinite; }
+.sync-dot.sync-offline { background: #94a3b8; }
+.sync-dot.sync-error { background: var(--danger); }
+@keyframes syncpulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+.acct-info { padding: 6px 10px 2px; display: flex; flex-direction: column; gap: 1px; }
+.acct-info b { font-size: 13px; }
 .menu button {
   display: block; width: 100%; text-align: left; border: 0; background: transparent;
   padding: 8px 10px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--ink);

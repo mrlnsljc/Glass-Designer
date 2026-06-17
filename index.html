@@ -37,6 +37,16 @@
     <button id="btnCam" class="btn" title="Switch isometric / 3D view">Iso</button>
     <button id="btnLabels" class="btn on" title="Toggle panel labels">Labels</button>
     <button id="btnFit" class="btn" title="Fit view">Fit</button>
+    <div class="menu-wrap acct-wrap">
+      <button id="btnAccount" class="btn" title="Sign in to sync across devices">
+        <span id="syncDot" class="sync-dot" aria-hidden="true"></span><span id="acctLabel">Sign in</span>
+      </button>
+      <div id="acctMenu" class="menu">
+        <div class="acct-info"><b id="acctName"></b><span id="acctEmail" class="muted xs"></span></div>
+        <hr>
+        <button data-acct="signout">Sign out</button>
+      </div>
+    </div>
     <div class="menu-wrap">
       <button id="btnMenu" class="btn btn--primary" title="File menu">File ▾</button>
       <div id="menu" class="menu">

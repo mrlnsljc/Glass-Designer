@@ -119,6 +119,11 @@ export const state = { project: null, selectedPanelId: null, selectedPanelIds: [
 const subscribers = new Set();
 export const subscribe = (fn) => { subscribers.add(fn); return () => subscribers.delete(fn); };
 
+// Optional cloud mirror (Firebase). When signed in, app.js wires { upsert, remove }
+// here; saves/deletes are forwarded so designs sync. No-ops when signed out.
+let cloudSync = null;
+export const setCloudSync = (api) => { cloudSync = api; };
+
 export function emit(touch = true) {
   if (touch && state.project) { state.project.updatedAt = Date.now(); saveActive(); }
   subscribers.forEach((fn) => fn(state.project));
@@ -134,6 +139,7 @@ export function saveActive() {
   lib[state.project.id] = state.project;
   writeLib(lib);
   localStorage.setItem(LS_ACTIVE, state.project.id);
+  cloudSync?.upsert?.(state.project); // mirror to the cloud (debounced; no-op if signed out)
 }
 export function listProjects() { return Object.values(readLib()).sort((a, b) => b.updatedAt - a.updatedAt); }
 
@@ -147,7 +153,37 @@ export function loadProject(id) {
 export function deleteProject(id) {
   const lib = readLib(); delete lib[id]; writeLib(lib);
   if (state.project && state.project.id === id) state.project = Object.values(lib)[0] || newProject();
+  cloudSync?.remove?.(id);
   emit(false);
+}
+
+// ---- remote (cloud) changes ------------------------------------------------
+// Applied by app.js from the Firestore listener. These touch localStorage
+// DIRECTLY (no saveActive) so they never echo back to the cloud. Last-edit-wins
+// by updatedAt: a remote copy only overwrites a local one when it's newer.
+export function mergeRemoteDesign(remote) {
+  if (!remote || !remote.id) return { changed: false };
+  const lib = readLib();
+  const cur = lib[remote.id];
+  if (cur && (cur.updatedAt || 0) >= (remote.updatedAt || 0)) return { changed: false };
+  lib[remote.id] = normalize(remote);
+  writeLib(lib);
+  if (state.project && state.project.id === remote.id) {
+    state.project = lib[remote.id];
+    return { changed: true, activeChanged: true };
+  }
+  return { changed: true, activeChanged: false };
+}
+
+export function removeRemoteDesign(id) {
+  const lib = readLib();
+  if (!lib[id]) return { changed: false };
+  delete lib[id]; writeLib(lib);
+  if (state.project && state.project.id === id) {
+    state.project = Object.values(lib)[0] || newProject();
+    return { changed: true, activeRemoved: true };
+  }
+  return { changed: true, activeRemoved: false };
 }
 export function setActiveProject(project) {
   state.project = normalize(project); state.selectedPanelId = null; state.selectedPanelIds = []; state.selectedRailId = null; saveActive(); emit(false);

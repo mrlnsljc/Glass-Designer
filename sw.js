@@ -7,7 +7,7 @@
      online load the app keeps working with no connection.
    Bump CACHE_VERSION to force clients onto new assets.
    ============================================================================= */
-const CACHE_VERSION = 'v11';
+const CACHE_VERSION = 'v12';
 const SHELL = `grd-shell-${CACHE_VERSION}`;
 const CDN = `grd-cdn-${CACHE_VERSION}`;
 
@@ -28,6 +28,8 @@ const SHELL_ASSETS = [
   './js/ui.js',
   './js/exporter.js',
   './js/polyEditor.js',
+  './js/cloud.js',
+  './js/firebaseConfig.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-180.png',
@@ -50,7 +52,7 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-const isCDN = (u) => u.hostname === 'unpkg.com' || u.hostname.endsWith('jsdelivr.net');
+const isCDN = (u) => u.hostname === 'unpkg.com' || u.hostname.endsWith('jsdelivr.net') || u.hostname === 'www.gstatic.com';
 // During local dev never serve from cache, so edits always show on reload.
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 

@@ -19,6 +19,7 @@ import { panelDims } from './geometry.js';
 import { allLibraries, saveCustomItem } from './hardware.js';
 import { downloadImage, printReport } from './exporter.js';
 import { openPolyEditor } from './polyEditor.js';
+import * as cloud from './cloud.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -40,11 +41,21 @@ function boot() {
   scene.onRailCreate(onSceneRailCreate);
   scene.onRailEndpoint(onSceneRailEndpoint);
 
-  wireHeader(); wireViewTools(); wireControls();
+  wireHeader(); wireViewTools(); wireControls(); wireAccount();
 
   renderAll();
   scene.setCamera(state.project.options.camera || 'iso');
   scene.render(state.project); scene.select(state.selectedPanelIds); scene.fit();
+
+  // Optional cloud sync — local-first, so this just mirrors designs when signed in.
+  store.setCloudSync({ upsert: cloud.pushDesign, remove: cloud.deleteDesign });
+  cloud.initCloud({
+    onStatus: setSyncStatus,
+    onUser: setAccountUI,
+    onRemoteDesign: applyRemoteDesign,
+    onRemoteDelete: applyRemoteDelete,
+    getLocalDesigns: () => store.listProjects(),
+  });
 }
 
 // ---- render pipeline -------------------------------------------------------
@@ -416,6 +427,61 @@ function wireHeader() {
   menu.addEventListener('click', (e) => { const it = e.target.closest('[data-menu]'); if (!it) return; menu.classList.remove('open'); handleMenu(it.dataset.menu); });
   $('#fileInput').addEventListener('change', onFileChosen);
 }
+
+// ---------------------------------------------------------------------------
+//  Account + cloud sync UI
+// ---------------------------------------------------------------------------
+let signedIn = false;
+function wireAccount() {
+  const btn = $('#btnAccount'), menu = $('#acctMenu');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!signedIn) { cloud.signIn(); return; } // signed out → start Google sign-in
+    menu.classList.toggle('open');             // signed in → show account menu
+  });
+  document.addEventListener('click', () => menu.classList.remove('open'));
+  menu.addEventListener('click', (e) => {
+    if (e.target.closest('[data-acct="signout"]')) { menu.classList.remove('open'); cloud.signOut(); }
+  });
+}
+
+function setAccountUI(user) {
+  signedIn = !!user;
+  const label = $('#acctLabel');
+  if (user) {
+    label.textContent = (user.name || user.email || 'Account').split(' ')[0];
+    $('#btnAccount').title = 'Synced as ' + (user.email || '');
+    $('#acctName').textContent = user.name || '';
+    $('#acctEmail').textContent = user.email || '';
+  } else {
+    label.textContent = 'Sign in';
+    $('#btnAccount').title = 'Sign in to sync across devices';
+    $('#acctMenu').classList.remove('open');
+  }
+}
+
+const SYNC_TITLES = { 'signed-out': 'Not signed in — designs stay on this device', syncing: 'Syncing…', synced: 'All designs synced', offline: 'Offline — will sync when reconnected', error: 'Sync error — check connection' };
+function setSyncStatus(status) {
+  const dot = $('#syncDot'); if (!dot) return;
+  dot.className = 'sync-dot sync-' + status;
+  dot.title = SYNC_TITLES[status] || '';
+}
+
+// A remote design arrived from another device. Don't clobber a field you're
+// editing right now; otherwise merge (last-edit-wins) and refresh if it's active.
+function applyRemoteDesign(project) {
+  if (project.id === state.project?.id && isEditingControls()) return;
+  const res = store.mergeRemoteDesign(project);
+  if (res.activeChanged) { renderAll(); scene.render(state.project); scene.select(state.selectedPanelIds); scene.selectRail(state.selectedRailId); }
+}
+function applyRemoteDelete(id) {
+  const res = store.removeRemoteDesign(id);
+  if (res.activeRemoved) {
+    state.selectedPanelId = null; state.selectedPanelIds = []; state.selectedRailId = null;
+    renderAll(); scene.render(state.project); scene.fit();
+  }
+}
+const isEditingControls = () => { const a = document.activeElement; return a && controlsEl.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName); };
 
 const HINTS = {
   select: 'Holes tool · drag a hole / cut-out to move it around on its glass (panels: use Move / Rotate)',
