@@ -125,15 +125,24 @@ function resync() { for (const p of (handlers.getLocalDesigns?.() || [])) pushNo
 export async function signIn() {
   if (!auth) { alert('Cloud sync is unavailable right now (offline?).'); return; }
   const provider = new fb.GoogleAuthProvider();
+  const ua = navigator.userAgent || '';
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone;
+  // Popups are unreliable on phones/tablets (mobile Safari blocks them silently),
+  // so any touch / mobile device uses the full-page redirect flow instead.
+  const mobile = standalone || /Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+  if (mobile) {
+    setStatus('syncing');
+    try { await fb.signInWithRedirect(auth, provider); }
+    catch (e) { console.error('redirect sign-in failed', e); setStatus('error'); alert('Sign-in failed: ' + (e.code || e.message)); }
+    return;
+  }
   try {
-    if (standalone) { await fb.signInWithRedirect(auth, provider); return; } // installed PWA: redirect is reliable
     await fb.signInWithPopup(auth, provider);
   } catch (e) {
     if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
     if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
       try { await fb.signInWithRedirect(auth, provider); } catch (e2) { console.error(e2); setStatus('error'); }
-    } else { console.error(e); setStatus('error'); }
+    } else { console.error(e); setStatus('error'); alert('Sign-in error: ' + (e.code || e.message)); }
   }
 }
 
