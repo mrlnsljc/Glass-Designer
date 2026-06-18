@@ -331,6 +331,13 @@ export function setRailEndpoint(id, end, x, z, save = true) {
   if (save) emit(); else subscribers.forEach((fn) => fn(state.project));
 }
 
+/** Live whole-rail move from the 3D view (both endpoints). `save` persists. */
+export function setRailPos(id, pos, save = true) {
+  const r = findRail(id); if (!r) return;
+  Object.assign(r, pos);
+  if (save) emit(); else subscribers.forEach((fn) => fn(state.project));
+}
+
 // ---- hardware bill of materials -------------------------------------------
 export function addHardware(line) {
   state.project.hardware = state.project.hardware || [];

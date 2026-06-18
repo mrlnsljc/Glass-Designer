@@ -40,6 +40,7 @@ function boot() {
   scene.onRailSelect(onSceneRailSelect);
   scene.onRailCreate(onSceneRailCreate);
   scene.onRailEndpoint(onSceneRailEndpoint);
+  scene.onRailMove(onSceneRailMove);
 
   wireHeader(); wireViewTools(); wireControls(); wireAccount();
 
@@ -278,22 +279,38 @@ function openPanelPolyEditor(id) {
 }
 
 // ---- handrails -------------------------------------------------------------
-function onSceneRailCreate(ax, az, bx, bz) {
+// Endpoints snapped to glass report that panel's top height, so a new handrail
+// sits ON the glass (and follows a stair run as rise) instead of a flat default.
+function onSceneRailCreate(ax, az, bx, bz, topA, topB) {
   if (Math.hypot(bx - ax, bz - az) < 1) return; // ignore a double-click in place
-  store.addRail({ ax, az, bx, bz });
+  const over = { ax, az, bx, bz };
+  if (topA != null || topB != null) {
+    const hA = topA != null ? topA : topB;
+    const hB = topB != null ? topB : hA;
+    over.height = round(hA); over.rise = round(hB - hA);
+  }
+  store.addRail(over);
   state.selectedRailId = state.project.rails[state.project.rails.length - 1].id;
   renderControls(); renderScene();
   railCardFor(state.selectedRailId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 function onSceneRailSelect(railId) { selectRail(railId); }
+function setRailCardFields(railId, vals) {
+  const card = railCardFor(railId); if (!card) return;
+  for (const [f, v] of Object.entries(vals)) {
+    const el = card.querySelector(`input[data-field="${f}"]`);
+    if (el && document.activeElement !== el) el.value = round(v);
+  }
+}
 function onSceneRailEndpoint(railId, end, x, z, save) {
   store.setRailEndpoint(railId, end, x, z, save);
-  const card = railCardFor(railId);
-  if (card) {
-    const set = (f, v) => { const el = card.querySelector(`input[data-field="${f}"]`); if (el && document.activeElement !== el) el.value = v; };
-    set(end === 'a' ? 'rail.ax' : 'rail.bx', round(x));
-    set(end === 'a' ? 'rail.az' : 'rail.bz', round(z));
-  }
+  setRailCardFields(railId, end === 'a' ? { 'rail.ax': x, 'rail.az': z } : { 'rail.bx': x, 'rail.bz': z });
+  if (save) { renderControls(); renderTotals(); }
+  renderPlan();
+}
+function onSceneRailMove(railId, pos, save) {
+  store.setRailPos(railId, pos, save);
+  setRailCardFields(railId, { 'rail.ax': pos.ax, 'rail.az': pos.az, 'rail.bx': pos.bx, 'rail.bz': pos.bz });
   if (save) { renderControls(); renderTotals(); }
   renderPlan();
 }
@@ -485,9 +502,9 @@ const isEditingControls = () => { const a = document.activeElement; return a && 
 
 const HINTS = {
   select: 'Holes tool · drag a hole / cut-out to move it around on its glass (panels: use Move / Rotate)',
-  move: 'Move tool · click a panel (Shift-click to add more), then drag the gizmo to move them together',
+  move: 'Move tool · drag a panel gizmo, or drag a handrail to slide it (drag a blue end-dot to adjust one end)',
   rotate: 'Rotate tool · click a panel, then drag the ring to spin it',
-  rail: 'Rail tool · click a start point, then an end point to draw a handrail · endpoints snap to panel ends · drag a blue handle to adjust',
+  rail: 'Rail tool · click a start point, then an end point to draw a handrail · it snaps onto nearby glass · drag the rail or its end-dots to adjust',
 };
 const setHint = (t) => { const h = $('.hint'); if (h) h.textContent = t; };
 

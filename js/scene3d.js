@@ -35,7 +35,7 @@ let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = t
 let needsRender = true, raf = 0;
 let project = null;
 let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
-let railSelectCb = null, railCreateCb = null, railEndpointCb = null;
+let railSelectCb = null, railCreateCb = null, railEndpointCb = null, railMoveCb = null;
 let draggingId = null, selectedId = null, selectedFeatureId = null;
 let selectedIds = [], multiIds = [], pivot;
 const pivotLast = new THREE.Vector3();
@@ -258,8 +258,8 @@ function buildRails() {
     hit.userData = { railId: r.id, railHit: true };
     railGroup.add(hit); railPickMeshes.push(hit);
 
-    // endpoint drag handles (only interactive while the Rail tool is active)
-    if (tool === 'rail') {
+    // endpoint drag handles — shown while the Rail tool is active or this rail is selected
+    if (tool === 'rail' || sel) {
       for (const [end, p] of [['a', A], ['b', B]]) {
         const handle = new THREE.Mesh(new THREE.SphereGeometry(Math.max(s, 2.4), 12, 12),
           new THREE.MeshBasicMaterial({ color: sel ? 0x1d4ed8 : 0x2563eb }));
@@ -271,29 +271,49 @@ function buildRails() {
   }
 }
 
-// Ground point under the cursor, snapped to grid + nearby panel/rail endpoints.
-function groundPoint(snapEnds = true) {
+// Raw ground point under the cursor (no snapping).
+function rawGround() {
   if (!raycaster.ray.intersectPlane(groundPlane, _hitPt)) return null;
-  let x = _hitPt.x, z = _hitPt.z;
-  if (snapEnds) {
-    let best = 5, bx = null, bz = null; // snap within 5"
-    for (const p of (project.panels || [])) {
-      const e = panelEndpoints(p);
-      for (const [ex, ez] of [[e.ax, e.az], [e.bx, e.bz]]) {
-        const dd = Math.hypot(x - ex, z - ez);
-        if (dd < best) { best = dd; bx = ex; bz = ez; }
-      }
+  return { x: _hitPt.x, z: _hitPt.z };
+}
+
+const SNAP_R = 12; // handrails "prefer" panels within this radius (in), but aren't confined
+function closestOnSeg(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz || 1;
+  let t = ((px - ax) * dx + (pz - az) * dz) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return { x: ax + t * dx, z: az + t * dz };
+}
+
+// Snap a ground point to nearby glass (preferred) then the grid. A handrail
+// endpoint snaps to a panel's ends OR anywhere along its run, and reports that
+// panel's top height so the rail can sit on the glass. `top` is null when the
+// point didn't land near any panel (free placement).
+function snapEndpoint(x, z) {
+  let best = SNAP_R, bx = null, bz = null, top = null;
+  for (const p of (project?.panels || [])) {
+    const e = panelEndpoints(p);
+    const pTop = (p.y || 0) + panelDims(p).hMax;
+    const proj = closestOnSeg(x, z, e.ax, e.az, e.bx, e.bz);
+    for (const [cx, cz] of [[e.ax, e.az], [e.bx, e.bz], [proj.x, proj.z]]) {
+      const dd = Math.hypot(x - cx, z - cz);
+      if (dd < best) { best = dd; bx = cx; bz = cz; top = pTop; }
     }
-    if (bx != null) return { x: round(bx), z: round(bz), snapped: true };
   }
+  if (bx != null) return { x: round(bx), z: round(bz), top };
   if (snap) { x = Math.round(x); z = Math.round(z); }
-  return { x: round(x), z: round(z), snapped: false };
+  return { x: round(x), z: round(z), top: null };
+}
+
+// Convenience: raycast the ground and snap. Returns { x, z, top } or null.
+function groundSnap() {
+  const g = rawGround(); if (!g) return null;
+  return snapEndpoint(g.x, g.z);
 }
 
 function updateRailPreview() {
   if (!railPending) { if (railPreview) { railPreview.visible = false; } return; }
-  if (!raycaster.ray.intersectPlane(groundPlane, _hitPt)) return;
-  const g = groundPoint(); if (!g) return;
+  const g = groundSnap(); if (!g) return;
   if (!railPreview) {
     railPreview = new THREE.Line(new THREE.BufferGeometry(),
       new THREE.LineDashedMaterial({ color: 0x2563eb, dashSize: 4, gapSize: 3 }));
@@ -517,7 +537,7 @@ function groupMove(save) {
 // ---------------------------------------------------------------------------
 const raycaster = new THREE.Raycaster(); const ptr = new THREE.Vector2();
 const _hitPt = new THREE.Vector3();
-let downXY = null, downOnGizmo = false;
+let downXY = null, downOnGizmo = false, downOnCanvas = false;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 function setNDC(e) {
@@ -530,23 +550,36 @@ function raycastGlass() {
 }
 
 function onDown(e) {
+  downOnCanvas = true; // this pointer sequence started on the canvas
   downXY = { x: e.clientX, y: e.clientY };
   downOnGizmo = !!gizmo.axis;
   drag = null;
+  if (downOnGizmo) return; // the panel gizmo handles its own drag
 
-  // Rail tool: grab an endpoint handle to drag it; otherwise the click (in onUp)
-  // either selects a rail or drops a point.
-  if (tool === 'rail') {
+  // Handrails are grabbable in both the Move and Rail tools: an endpoint handle
+  // drags one end; the body drags the whole rail (like a hole/spigot). A plain
+  // click (no drag) selects the rail. Empty rail-tool clicks draw points (onUp).
+  if (tool === 'rail' || tool === 'move') {
     setNDC(e); raycaster.setFromCamera(ptr, activeCam);
     const hh = railHandleMeshes.length ? raycaster.intersectObjects(railHandleMeshes, false)[0] : null;
     if (hh) {
-      drag = { type: 'rail', railId: hh.object.userData.railId, end: hh.object.userData.end, handle: hh.object, moved: false };
-      orbit.enabled = false;
+      drag = { type: 'rail-end', railId: hh.object.userData.railId, end: hh.object.userData.end, moved: false };
+      orbit.enabled = false; return;
     }
-    return;
+    const rb = railPickMeshes.length ? raycaster.intersectObjects(railPickMeshes, false)[0] : null;
+    if (rb) {
+      const r = project.rails.find((x) => x.id === rb.object.userData.railId);
+      const g0 = rawGround();
+      if (r && g0) {
+        drag = { type: 'rail-body', railId: r.id, start: g0, orig: { ax: r.ax, az: r.az, bx: r.bx, bz: r.bz }, moved: false };
+        orbit.enabled = false; return;
+      }
+    }
+    if (tool === 'rail') return; // empty rail-tool click → drawn in onUp
+    // move tool with no rail hit → fall through to the panel gizmo/selection behaviour
   }
 
-  if (tool !== 'select' || downOnGizmo) return; // gizmo / orbit handle it
+  if (tool !== 'select') return; // only the Holes tool drags features
   setNDC(e); raycaster.setFromCamera(ptr, activeCam);
 
   // The Select tool grabs ONLY placed holes / cut-outs. Panels are moved with the
@@ -571,18 +604,36 @@ function onDown(e) {
 }
 
 function onMove(e) {
-  // Rail tool: drag an endpoint, or (between clicks) stretch the preview line.
+  // Dragging a handrail (endpoint or whole body) — works in Move and Rail tools.
+  if (drag && (drag.type === 'rail-end' || drag.type === 'rail-body')) {
+    setNDC(e); raycaster.setFromCamera(ptr, activeCam);
+    const g = rawGround(); if (!g) return;
+    if (downXY && Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 3) drag.moved = true;
+    const r = project.rails.find((x) => x.id === drag.railId); if (!r) return;
+    if (drag.type === 'rail-end') {
+      const s = snapEndpoint(g.x, g.z);
+      if (drag.end === 'a') { r.ax = s.x; r.az = s.z; } else { r.bx = s.x; r.bz = s.z; }
+      railEndpointCb?.(drag.railId, drag.end, s.x, s.z, false);
+    } else {
+      // rigid translate: move both ends by the cursor delta, then snap the rail to
+      // the nearest panel (whichever end snaps more strongly) so it stays straight.
+      const dx = g.x - drag.start.x, dz = g.z - drag.start.z;
+      const ta = { x: drag.orig.ax + dx, z: drag.orig.az + dz };
+      const tb = { x: drag.orig.bx + dx, z: drag.orig.bz + dz };
+      const sa = snapEndpoint(ta.x, ta.z), sb = snapEndpoint(tb.x, tb.z);
+      const da = Math.hypot(sa.x - ta.x, sa.z - ta.z), db = Math.hypot(sb.x - tb.x, sb.z - tb.z);
+      const use = (sb.top != null && (sa.top == null || db < da)) ? [sb, tb] : [sa, ta];
+      const cx = use[0].x - use[1].x, cz = use[0].z - use[1].z; // common correction
+      r.ax = round(ta.x + cx); r.az = round(ta.z + cz);
+      r.bx = round(tb.x + cx); r.bz = round(tb.z + cz);
+      railMoveCb?.(drag.railId, { ax: r.ax, az: r.az, bx: r.bx, bz: r.bz }, false);
+    }
+    buildRails(); needsRender = true;
+    return;
+  }
+  // Rail tool: between clicks, stretch the dashed preview to the cursor.
   if (tool === 'rail') {
     setNDC(e); raycaster.setFromCamera(ptr, activeCam);
-    if (drag && drag.type === 'rail') {
-      const g = groundPoint(); if (!g) return;
-      if (downXY && Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 3) drag.moved = true;
-      const r = project.rails.find((x) => x.id === drag.railId);
-      if (r) { if (drag.end === 'a') { r.ax = g.x; r.az = g.z; } else { r.bx = g.x; r.bz = g.z; } }
-      if (railEndpointCb) railEndpointCb(drag.railId, drag.end, g.x, g.z, false);
-      buildRails(); needsRender = true;
-      return;
-    }
     if (railPending) updateRailPreview();
     return;
   }
@@ -603,22 +654,30 @@ function onMove(e) {
 }
 
 function onUp(e) {
-  // Rail tool — commit an endpoint drag, else treat as a click.
+  const wasCanvas = downOnCanvas; downOnCanvas = false;
+  if (!wasCanvas) return; // pointer-up from a press that didn't start on the canvas (e.g. a side-panel button) — ignore
+
+  // Commit a handrail drag (endpoint or whole body); a no-move drag = a select.
+  if (drag && (drag.type === 'rail-end' || drag.type === 'rail-body')) {
+    const dr = drag; drag = null; orbit.enabled = true; downXY = null;
+    const r = project.rails.find((x) => x.id === dr.railId);
+    if (dr.moved && r) {
+      if (dr.type === 'rail-end') railEndpointCb?.(dr.railId, dr.end, dr.end === 'a' ? r.ax : r.bx, dr.end === 'a' ? r.az : r.bz, true);
+      else railMoveCb?.(dr.railId, { ax: r.ax, az: r.az, bx: r.bx, bz: r.bz }, true);
+    } else { railSelectCb?.(dr.railId); }
+    needsRender = true; return;
+  }
+
+  // Rail tool — empty click: select a rail under the cursor, else drop a point.
   if (tool === 'rail') {
-    const dr = drag; drag = null; orbit.enabled = true;
-    const d0 = downXY; downXY = null;
-    if (dr && dr.type === 'rail') {
-      if (dr.moved) { const r = project.rails.find((x) => x.id === dr.railId); if (r && railEndpointCb) railEndpointCb(dr.railId, dr.end, dr.end === 'a' ? r.ax : r.bx, dr.end === 'a' ? r.az : r.bz, true); }
-      else if (railSelectCb) railSelectCb(dr.railId);
-      return;
-    }
-    if (d0 && Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 6) return; // an orbit drag
+    const d0 = downXY; downXY = null; orbit.enabled = true; drag = null;
+    if (d0 && Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 6) return; // an orbit drag, not a click
     setNDC(e); raycaster.setFromCamera(ptr, activeCam);
     const rhit = railPickMeshes.length ? raycaster.intersectObjects(railPickMeshes, false)[0] : null;
-    if (rhit) { if (railSelectCb) railSelectCb(rhit.object.userData.railId); return; }
-    const g = groundPoint(); if (!g) return;
-    if (!railPending) { railPending = { x: g.x, z: g.z }; updateRailPreview(); }
-    else { const a = railPending; clearRailPending(); if (railCreateCb) railCreateCb(a.x, a.z, g.x, g.z); }
+    if (rhit) { railSelectCb?.(rhit.object.userData.railId); return; }
+    const g = groundSnap(); if (!g) return;
+    if (!railPending) { railPending = { x: g.x, z: g.z, top: g.top }; updateRailPreview(); }
+    else { const a = railPending; clearRailPending(); railCreateCb?.(a.x, a.z, g.x, g.z, a.top, g.top); }
     return;
   }
 
@@ -673,6 +732,7 @@ export function onFeatureSelect(cb) { featureSelectCb = cb; }
 export function onRailSelect(cb) { railSelectCb = cb; }
 export function onRailCreate(cb) { railCreateCb = cb; }
 export function onRailEndpoint(cb) { railEndpointCb = cb; }
+export function onRailMove(cb) { railMoveCb = cb; }
 
 /** Highlight a handrail (or null). Rebuilds the rail group so the colour swaps. */
 export function selectRail(id) { selectedRailId = id || null; buildRails(); needsRender = true; }
