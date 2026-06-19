@@ -126,10 +126,11 @@ export async function signIn() {
   if (!auth) { alert('Cloud sync is unavailable right now (offline?).'); return; }
   const provider = new fb.GoogleAuthProvider();
   const ua = navigator.userAgent || '';
-  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone;
-  // Popups are unreliable on phones/tablets (mobile Safari blocks them silently),
-  // so any touch / mobile device uses the full-page redirect flow instead.
-  const mobile = standalone || /Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+  // Only true phones/tablets use the full-page redirect (mobile browsers block
+  // popups). Desktop — including an installed PWA window — uses a popup: redirect
+  // can't complete inside an installed PWA when the app domain differs from the
+  // Firebase authDomain (storage gets partitioned), so the popup is more reliable.
+  const mobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
   if (mobile) {
     setStatus('syncing');
     try { await fb.signInWithRedirect(auth, provider); }
