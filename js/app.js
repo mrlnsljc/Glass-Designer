@@ -237,6 +237,7 @@ function onControlClick(e) {
       renderControls(); renderScene();
       break;
     case 'addSpigots3': addThreeSpigots(id); break;
+    case 'addSpigotsAll': addSpigotsAllPanels(); break;
     case 'removeFeature':
       store.removeFeature(id, btn.dataset.feat);
       renderControls(); renderScene();
@@ -336,12 +337,22 @@ function selectRail(railId) {
 const railCardFor = (id) => controlsEl.querySelector(`.panel-card[data-rail="${id}"]`);
 
 // Two spigots 6" in from each end + one dead-centre, all snapped to the bottom edge.
-function addThreeSpigots(panelId) {
+function addSpigotTriple(panelId) {
   const p = store.findPanel(panelId); if (!p) return;
   const w = panelDims(p).wBottom;
   const y = (featureType('spigot').h || 6) / 2; // bottom-snapped height
   [-w / 2 + 6, 0, w / 2 - 6].forEach((x) => store.addFeature(panelId, makeFeature('spigot', round(x), y)));
+}
+function addThreeSpigots(panelId) {
+  addSpigotTriple(panelId);
   state.selectedPanelId = panelId; state.selectedPanelIds = [panelId];
+  renderControls(); renderScene();
+}
+// Add the 3-spigot set to every panel that doesn't already have spigots (safe to click twice).
+function addSpigotsAllPanels() {
+  state.project.panels.forEach((p) => {
+    if (!(p.features || []).some((f) => f.kind === 'spigot')) addSpigotTriple(p.id);
+  });
   renderControls(); renderScene();
 }
 

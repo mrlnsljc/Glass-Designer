@@ -43,6 +43,7 @@ function panelsSection(p, selectedId) {
       <button class="btn btn--primary btn--sm" data-act="addPanel">＋ Panel</button>
       <button class="btn btn--sm" data-act="addRun" title="Three panels in a straight run">Inline run</button>
       <button class="btn btn--sm" data-act="addCorner" title="Two panels at 90° (shower / deck corner)">90° corner</button>
+      ${p.panels.length ? `<button class="btn btn--sm" data-act="addSpigotsAll" title="Add 3 spigots (6&quot; from each end + centre) to every panel that has none yet">⊥ 3 Spigots · all</button>` : ''}
     </div>`;
   const list = p.panels.length
     ? p.panels.map((pn, i) => panelCard(p, pn, i, selectedId)).join('')
