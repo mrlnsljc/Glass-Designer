@@ -94,6 +94,14 @@ function normalize(p) {
     (pn.features || []).forEach((f) => { if (f.kind === 'handle' && f.len == null) f.len = 8; }); // ladder-pull length
     delete pn.holes;
   });
+  // one-time fix: the original spigot depth default (6") was far too chunky — slim
+  // existing spigots still on that value down to a realistic 2". Runs once per project.
+  if (!p._spigotDepthFixed) {
+    (p.panels || []).forEach((pn) => (pn.features || []).forEach((f) => {
+      if (f.kind === 'spigot' && f.len === 6) f.len = 2;
+    }));
+    p._spigotDepthFixed = true;
+  }
   return p;
 }
 

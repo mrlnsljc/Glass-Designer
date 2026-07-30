@@ -12,7 +12,7 @@
 
 export const FEATURE_TYPES = {
   hole:    { id: 'hole',   name: 'Hole / Standoff', short: '⌀',  shape: 'circle', d: 0.5,        costKey: 'hole' },
-  spigot:  { id: 'spigot', name: 'Spigot (base)',   short: 'SPG', shape: 'spigot', w: 2, h: 8, len: 6, base: 1, costKey: 'spigot', snapBottom: true },
+  spigot:  { id: 'spigot', name: 'Spigot (base)',   short: 'SPG', shape: 'spigot', w: 2, h: 8, len: 2, base: 1, costKey: 'spigot', snapBottom: true },
   hinge:   { id: 'hinge',  name: 'Hinge cut-out',   short: 'HNG', shape: 'rect',   w: 4,  h: 5,   costKey: 'hinge' },
   handle:  { id: 'handle', name: 'Handle / Pull',   short: 'HDL', shape: 'handle', len: 8, dia: 0.75, costKey: 'handle' },
   lock:    { id: 'lock',   name: 'Lock / Latch',    short: 'LCK', shape: 'rect',   w: 0.9, h: 2.4, costKey: 'lock' },
