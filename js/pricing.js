@@ -59,13 +59,30 @@ export const money = (n) =>
   '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ---- display units ---------------------------------------------------------
-// 'ftin' -> 3' 6" ;  'inch' -> decimal inches, up to 3 places, trailing zeros dropped (42", 42.5", 42.125")
+// 'ftin'     -> 3' 6 1/2"  (feet + fractional inches)
+// 'inchfrac' -> 42 1/2"    (inches only, nearest 1/16)
+// 'inch'     -> 42.5"      (inches only, decimal to 3 places, trailing zeros dropped)
+const UNIT_MODES = ['ftin', 'inchfrac', 'inch'];
 let unitMode = 'ftin';
-export function setUnitMode(m) { unitMode = (m === 'inch') ? 'inch' : 'ftin'; }
+export function setUnitMode(m) { unitMode = UNIT_MODES.includes(m) ? m : 'ftin'; }
 export function getUnitMode() { return unitMode; }
 /** Format a length for display, honouring the current unit mode. */
 export function len(inches) {
-  return unitMode === 'inch' ? `${+(inches || 0).toFixed(3)}"` : ftIn(inches);
+  if (unitMode === 'inch') return `${+(inches || 0).toFixed(3)}"`;
+  if (unitMode === 'inchfrac') return inchFrac(inches);
+  return ftIn(inches);
+}
+
+/** inches -> fractional inches display, e.g. 42.5 -> 42 1/2" */
+export function inchFrac(inches) {
+  const sign = (inches || 0) < 0 ? '-' : '';
+  inches = Math.abs(inches || 0);
+  let whole = Math.floor(inches);
+  let sixteenths = Math.round((inches - whole) * 16);
+  if (sixteenths === 16) { whole += 1; sixteenths = 0; }
+  let fracStr = '';
+  if (sixteenths) { const g = gcd(sixteenths, 16); fracStr = ` ${sixteenths / g}/${16 / g}`; }
+  return `${sign}${whole}${fracStr}"`;
 }
 
 /** inches -> feet'inches" display, e.g. 42 -> 3' 6" */

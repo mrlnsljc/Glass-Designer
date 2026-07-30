@@ -62,6 +62,7 @@ function normalize(p) {
   if (!p) return p;
   p.options = p.options || {};
   if (p.options.units == null) p.options.units = 'ftin';
+  if (p.options.labelPos == null) p.options.labelPos = 'center';
   if (!p.area) p.area = { width: 0, depth: 0 };
   p.pricing = p.pricing || defaultPricing();
   // merge so new feature buckets (e.g. spigot) get a default while keeping edits
@@ -104,7 +105,7 @@ export function newProject(name = 'Untitled Design') {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     defaults: { width: 36, height: 42, thickness: 0.5, glassType: 'clear' },
-    options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, topRail: false, units: 'ftin' },
+    options: { showGrid: true, showLabels: true, camera: 'iso', snap: true, topRail: false, units: 'ftin', labelPos: 'center' },
     area: { width: 0, depth: 0 }, // optional work-area footprint drawn on the ground (0 = off)
     panels: [], // blank canvas
     rails: [],  // handrails (two-point tubes)
@@ -294,6 +295,20 @@ export function updateFeature(panelId, featId, patch) {
 export function removeFeature(panelId, featId) {
   const p = findPanel(panelId); if (!p) return;
   p.features = (p.features || []).filter((x) => x.id !== featId); emit();
+}
+
+/** Duplicate a feature exactly, nudged over so it's grabbable, clamped to the panel. */
+export function duplicateFeature(panelId, featId) {
+  const p = findPanel(panelId); if (!p) return null;
+  const f = (p.features || []).find((x) => x.id === featId); if (!f) return null;
+  const copy = { ...f, id: 'ft_' + Math.random().toString(36).slice(2, 8) };
+  const half = (p.width || 36) / 2;
+  let nx = (f.x || 0) + 6;
+  if (nx > half - 1) nx = (f.x || 0) - 6;         // near the right edge → nudge left instead
+  copy.x = round2(Math.max(-half + 1, Math.min(half - 1, nx)));
+  (p.features = p.features || []).push(copy);
+  emit();
+  return copy.id;
 }
 
 /** Live feature reposition from the Select-tool drag. `save` persists (drag end). */

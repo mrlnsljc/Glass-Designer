@@ -169,7 +169,10 @@ function featuresBlock(pn) {
   return `<div class="pc-feats">
     <div class="feats-head">
       <span>Holes &amp; cut-outs${pn.features?.length ? ` · ${pn.features.length}` : ''}</span>
-      <button class="btn btn--xs" data-act="addFeatureCenter" data-kind="hole" data-panel="${pn.id}" title="Add a hole at center">＋ Hole</button>
+      <span class="feats-actions">
+        <button class="btn btn--xs" data-act="addSpigots3" data-panel="${pn.id}" title="Add 3 spigots: 6&quot; in from each end + one dead-centre">＋ 3 Spigots</button>
+        <button class="btn btn--xs" data-act="addFeatureCenter" data-kind="hole" data-panel="${pn.id}" title="Add a hole at center">＋ Hole</button>
+      </span>
     </div>
     ${list || `<p class="feats-hint">Use the <b>Stamp</b> tool above the 3D view to place these on the panel.</p>`}
   </div>`;
@@ -192,6 +195,7 @@ function featureRow(pn, f) {
     ${fnum('feat.fromLeft', round(c.fromLeft), dn, 'L', 0, round(d.wBottom))}
     ${fnum('feat.fromBottom', round(c.fromBottom), dn, 'B', 0, round(d.hMax))}
     ${size}
+    <button class="icon-btn" tabindex="-1" data-act="dupFeature" ${dn} title="Duplicate">⧉</button>
     <button class="icon-btn" tabindex="-1" data-act="removeFeature" ${dn} title="Remove">✕</button>
   </div>`;
 }
@@ -278,8 +282,15 @@ function optionsSection(p) {
   return section('options', 'View &amp; work area', `
     <label class="fld"><span>Dimension units</span>
       <select data-opt-units>
-        <option value="ftin" ${o.units !== 'inch' ? 'selected' : ''}>Feet + inches (3' 6")</option>
-        <option value="inch" ${o.units === 'inch' ? 'selected' : ''}>Inches, 3 decimals (42.000")</option>
+        <option value="ftin" ${o.units === 'ftin' || (o.units !== 'inch' && o.units !== 'inchfrac') ? 'selected' : ''}>Feet + inches (3' 6 1/2")</option>
+        <option value="inchfrac" ${o.units === 'inchfrac' ? 'selected' : ''}>Inches, fractions (42 1/2")</option>
+        <option value="inch" ${o.units === 'inch' ? 'selected' : ''}>Inches, decimal (42.5")</option>
+      </select></label>
+    <label class="fld"><span>Label position (3D view)</span>
+      <select data-opt-labelpos>
+        <option value="center" ${(o.labelPos || 'center') === 'center' ? 'selected' : ''}>On panel (center)</option>
+        <option value="top" ${o.labelPos === 'top' ? 'selected' : ''}>Above panel (top)</option>
+        <option value="bottom" ${o.labelPos === 'bottom' ? 'selected' : ''}>Below panel (bottom)</option>
       </select></label>
     <div class="sub-label">Work area on the floor (0 = off)</div>
     <div class="grid2">

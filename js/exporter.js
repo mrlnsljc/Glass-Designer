@@ -50,7 +50,6 @@ export function printReport(project, renderDataURL, { pricing = true, panelImage
       <td class="c">${(r.panel.thickness || 0.5)}"</td>
       <td class="c">${areaSqft(r.panel).toFixed(2)}</td>
       <td>${gt.name}</td>
-      <td class="c">${r.panel.y > 0 ? len(r.panel.y) : '—'}</td>
       <td class="c">${(r.panel.features || []).length}</td>
       ${pricing ? `<td class="r">${money(r.cost.total)}</td>` : ''}
     </tr>`;
@@ -96,7 +95,7 @@ export function printReport(project, renderDataURL, { pricing = true, panelImage
       <table class="cut">
         <thead><tr>
           <th class="c">#</th><th class="c">Width</th><th class="c">Height</th><th class="c">Thk</th>
-          <th class="c">Sq Ft</th><th>Glass</th><th class="c">Elev</th><th class="c">Cut-outs</th>${pricing ? '<th class="r">Cost</th>' : ''}
+          <th class="c">Sq Ft</th><th>Glass</th><th class="c">Cut-outs</th>${pricing ? '<th class="r">Cost</th>' : ''}
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>

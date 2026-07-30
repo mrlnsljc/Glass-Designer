@@ -31,7 +31,7 @@ import { BASE_H, panelCorners, panelDims, panelEndpoints } from './geometry.js';
 let renderer, labelRenderer, scene, world, container;
 let orbit, gizmo, perspCam, orthoCam, activeCam;
 let grid, areaGroup, railGroup;
-let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = true, showGrid = true;
+let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = true, showGrid = true, labelPos = 'center';
 let needsRender = true, raf = 0;
 let project = null;
 let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
@@ -153,6 +153,7 @@ function makeBackdrop() {
 export function render(proj) {
   project = proj;
   showLabels = proj.options.showLabels; showGrid = proj.options.showGrid;
+  labelPos = proj.options.labelPos || 'center';
   snap = proj.options.snap;
   grid.visible = showGrid;
   labelRenderer.domElement.style.display = showLabels ? '' : 'none';
@@ -333,7 +334,7 @@ function clearRailPending() {
 
 const signature = (p, o, i) =>
   [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.baseRise, p.customShape, p.glassType,
-    p.poly, JSON.stringify(p.points), p.baseShoe, o.topRail, showLabels, getUnitMode(), panelLabel(p, i), channelSig(p),
+    p.poly, JSON.stringify(p.points), p.baseShoe, o.topRail, showLabels, labelPos, getUnitMode(), panelLabel(p, i), channelSig(p),
     (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}:${f.len || ''}`).join(',')].join('|');
 
 function glassGeometry(p) {
@@ -387,7 +388,10 @@ function buildPanel(entry, p, i, o) {
     const dims = p.customShape ? `${len(d.wBottom)}↔${len(d.wTop)} × ${len(d.hLeft)}↕${len(d.hRight)}` : `${len(d.wBottom)} × ${len(d.hLeft)}`;
     el.innerHTML = `<b>${escapeHTML(panelLabel(p, i))}</b> ${dims}<span>${tint.short}${(p.y > 0) ? ' · ↑' + len(p.y) : ''}${fcount ? ' · ' + fcount + '◳' : ''}${p.locked ? ' · 🔒' : ''}</span>`;
     const chip = new CSS2DObject(el);
-    chip.position.set(0, y0 + d.vMid, (p.thickness || 0.5) / 2 + 0.2);
+    const chipY = labelPos === 'top' ? y0 + d.hMax + 3
+      : labelPos === 'bottom' ? y0 + d.vMin + 2
+      : y0 + d.vMid;
+    chip.position.set(0, chipY, (p.thickness || 0.5) / 2 + 0.2);
     g.add(chip); entry.chip = chip;
   }
 }

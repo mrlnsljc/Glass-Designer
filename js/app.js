@@ -167,7 +167,12 @@ function onControlChange(e) {
   }
   if (el.dataset.optUnits !== undefined) {
     state.project.options.units = el.value; emit();
-    setUnitMode(el.value); renderScene();
+    setUnitMode(el.value); renderScene(); renderControls();
+    return;
+  }
+  if (el.dataset.optLabelpos !== undefined) {
+    state.project.options.labelPos = el.value; emit();
+    renderScene();
     return;
   }
   if (el.dataset.opt) {
@@ -226,6 +231,12 @@ function onControlClick(e) {
       state.selectedPanelId = id; state.selectedPanelIds = [id];
       renderControls(); renderScene();
       break;
+    case 'dupFeature':
+      store.duplicateFeature(id, btn.dataset.feat);
+      state.selectedPanelId = id; state.selectedPanelIds = [id];
+      renderControls(); renderScene();
+      break;
+    case 'addSpigots3': addThreeSpigots(id); break;
     case 'removeFeature':
       store.removeFeature(id, btn.dataset.feat);
       renderControls(); renderScene();
@@ -323,6 +334,16 @@ function selectRail(railId) {
   renderPlan();
 }
 const railCardFor = (id) => controlsEl.querySelector(`.panel-card[data-rail="${id}"]`);
+
+// Two spigots 6" in from each end + one dead-centre, all snapped to the bottom edge.
+function addThreeSpigots(panelId) {
+  const p = store.findPanel(panelId); if (!p) return;
+  const w = panelDims(p).wBottom;
+  const y = (featureType('spigot').h || 6) / 2; // bottom-snapped height
+  [-w / 2 + 6, 0, w / 2 - 6].forEach((x) => store.addFeature(panelId, makeFeature('spigot', round(x), y)));
+  state.selectedPanelId = panelId; state.selectedPanelIds = [panelId];
+  renderControls(); renderScene();
+}
 
 // ---- stamping holes / cut-outs from the 3D view ----------------------------
 function onSceneStamp(panelId, kind, x, y) {
