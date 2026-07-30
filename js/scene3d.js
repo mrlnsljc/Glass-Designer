@@ -335,7 +335,7 @@ function clearRailPending() {
 const signature = (p, o, i) =>
   [p.width, p.height, p.thickness, p.widthTop, p.heightRight, p.baseRise, p.customShape, p.glassType,
     p.poly, JSON.stringify(p.points), p.baseShoe, o.topRail, showLabels, labelPos, getUnitMode(), panelLabel(p, i), channelSig(p),
-    (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}:${f.len || ''}`).join(',')].join('|');
+    (p.features || []).map((f) => `${f.kind}:${f.x}:${f.y}:${f.d || ''}:${f.w || ''}:${f.h || ''}:${f.len || ''}:${f.base || ''}`).join(',')].join('|');
 
 function glassGeometry(p) {
   const c = panelCorners(p);
@@ -413,12 +413,12 @@ function addFeatures(g, p, y0) {
     mark.userData = { featureId: f.id, panelId: p.id, y0 };
     let hitGeo;
     if (t.shape === 'spigot') {
-      const w = f.w || t.w, h = f.h || t.h, dz = (p.thickness || 0.5) + 2.6;
+      const w = f.w || t.w, h = f.h || t.h, dz = f.len || t.len, baseH = f.base || t.base;
       const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, dz), metalMat());
       mark.add(body);
-      const base = new THREE.Mesh(new THREE.BoxGeometry(w * 1.5, w * 0.7, dz * 1.2),
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w * 1.5, baseH, dz * 1.2),
         new THREE.MeshStandardMaterial({ color: 0xb6bcc2, roughness: 0.4, metalness: 0.85 }));
-      base.position.y = -h / 2 + w * 0.35; mark.add(base); // base plate near the bottom
+      base.position.y = -h / 2 + baseH / 2; mark.add(base); // base plate at the very bottom
       hitGeo = new THREE.PlaneGeometry(Math.max(w, 3), Math.max(h, 3));
     } else if (t.shape === 'handle') {
       // Vertical ladder pull: a round bar of length f.len standing off the glass on two posts.

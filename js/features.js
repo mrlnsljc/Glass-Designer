@@ -12,7 +12,7 @@
 
 export const FEATURE_TYPES = {
   hole:    { id: 'hole',   name: 'Hole / Standoff', short: '⌀',  shape: 'circle', d: 0.5,        costKey: 'hole' },
-  spigot:  { id: 'spigot', name: 'Spigot (base)',   short: 'SPG', shape: 'spigot', w: 2, h: 6,   costKey: 'spigot', snapBottom: true },
+  spigot:  { id: 'spigot', name: 'Spigot (base)',   short: 'SPG', shape: 'spigot', w: 2, h: 8, len: 6, base: 1, costKey: 'spigot', snapBottom: true },
   hinge:   { id: 'hinge',  name: 'Hinge cut-out',   short: 'HNG', shape: 'rect',   w: 4,  h: 5,   costKey: 'hinge' },
   handle:  { id: 'handle', name: 'Handle / Pull',   short: 'HDL', shape: 'handle', len: 8, dia: 0.75, costKey: 'handle' },
   lock:    { id: 'lock',   name: 'Lock / Latch',    short: 'LCK', shape: 'rect',   w: 0.9, h: 2.4, costKey: 'lock' },
@@ -35,6 +35,7 @@ export function makeFeature(kind, x = 0, y = 0) {
   const f = { id: 'ft_' + Math.random().toString(36).slice(2, 8), kind, x, y };
   if (t.shape === 'circle') f.d = t.d;
   else if (t.shape === 'handle') f.len = t.len;
+  else if (t.shape === 'spigot') { f.w = t.w; f.h = t.h; f.len = t.len; f.base = t.base; }
   else { f.w = t.w; f.h = t.h; }
   return f;
 }
