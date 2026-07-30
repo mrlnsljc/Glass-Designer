@@ -354,7 +354,13 @@ function buildPanel(entry, p, i, o) {
   disposeChildren(g);
   const tint = glassType(p.glassType);
   const d = panelDims(p);
-  const y0 = p.baseShoe ? BASE_H : 0; // glass sits on top of the shoe when enabled
+  // Spigot-mounted glass floats a little above the deck (real spigots grip the
+  // glass above their base plate) — lift the glass by a reveal clear of the tallest
+  // spigot base plate. Base shoe (if on) takes precedence.
+  const st = featureType('spigot');
+  const spg = (p.features || []).filter((f) => f.kind === 'spigot');
+  const reveal = (spg.length && !p.baseShoe) ? Math.max(...spg.map((f) => f.base ?? st.base)) + 1 : 0;
+  const y0 = p.baseShoe ? BASE_H : reveal; // glass base offset above the deck
 
   if (p.baseShoe) {
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(d.wBottom + 1, BASE_H, 3.2), metalMat());
@@ -409,7 +415,12 @@ function addFeatures(g, p, y0) {
     const t = featureType(f.kind);
     const ink = featInk;
     const mark = new THREE.Group();
-    mark.position.set(f.x, y0 + f.y, 0); // f.y is height above the panel base
+    // Spigots stand on the DECK (local y=0): base plate on the floor, post rising up
+    // to grip the glass — which itself floats at y0. All other features hang off the
+    // glass face at y0 + f.y.
+    const isSpigot = t.shape === 'spigot';
+    const markY = isSpigot ? (f.h || t.h) / 2 : y0 + f.y;
+    mark.position.set(f.x, markY, 0);
     mark.userData = { featureId: f.id, panelId: p.id, y0 };
     let hitGeo;
     if (t.shape === 'spigot') {
