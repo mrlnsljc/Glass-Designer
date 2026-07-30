@@ -66,6 +66,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
   width: 30px; height: 30px; border-radius: 7px; cursor: pointer; font-size: 15px; line-height: 1;
 }
 .icon-btn:hover { background: #f1f5f9; color: var(--ink); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn:disabled:hover { background: transparent; color: var(--muted); }
 .only-mobile { display: none; }
 
 .menu-wrap { position: relative; }

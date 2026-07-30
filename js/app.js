@@ -25,8 +25,6 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let stageEl, controlsEl, totalsEl, planEl;
 
-boot();
-
 function boot() {
   store.init();
   stageEl = $('#stage'); controlsEl = $('#controls'); totalsEl = $('#totals'); planEl = $('#planThumb');
@@ -42,11 +40,15 @@ function boot() {
   scene.onRailEndpoint(onSceneRailEndpoint);
   scene.onRailMove(onSceneRailMove);
 
-  wireHeader(); wireViewTools(); wireControls(); wireAccount();
+  wireHeader(); wireViewTools(); wireControls(); wireAccount(); wireUndoRedo();
 
   renderAll();
   scene.setCamera(state.project.options.camera || 'iso');
   scene.render(state.project); scene.select(state.selectedPanelIds); scene.fit();
+
+  // Undo/redo history: snapshot the project (debounced) after every committed change.
+  snapshotNow();
+  store.subscribe(() => { if (!applyingHistory) scheduleSnapshot(); });
 
   // Optional cloud sync — local-first, so this just mirrors designs when signed in.
   store.setCloudSync({ upsert: cloud.pushDesign, remove: cloud.deleteDesign });
@@ -56,6 +58,58 @@ function boot() {
     onRemoteDesign: applyRemoteDesign,
     onRemoteDelete: applyRemoteDelete,
     getLocalDesigns: () => store.listProjects(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+//  Undo / redo — a bounded stack of whole-project JSON snapshots.
+//  Rapid edits (typing, dragging) coalesce into one step via the debounce.
+// ---------------------------------------------------------------------------
+const HIST = { stack: [], index: -1, MAX: 80 };
+let histTimer = null, applyingHistory = false;
+
+function snapshotNow() {
+  if (!state.project) return;
+  const snap = store.exportJSON();
+  if (HIST.index >= 0 && HIST.stack[HIST.index] === snap) return; // nothing changed
+  HIST.stack = HIST.stack.slice(0, HIST.index + 1);               // drop the redo tail
+  HIST.stack.push(snap);
+  if (HIST.stack.length > HIST.MAX) HIST.stack.shift();
+  HIST.index = HIST.stack.length - 1;
+  updateUndoRedo();
+}
+function scheduleSnapshot() { clearTimeout(histTimer); histTimer = setTimeout(snapshotNow, 450); }
+
+function applyHistory(json) {
+  applyingHistory = true; clearTimeout(histTimer);
+  try {
+    const p = JSON.parse(json);
+    p.updatedAt = Date.now();          // make the restored state the newest, so it wins sync + saves
+    store.setActiveProject(p);         // normalizes + sets active + persists (emit is guarded)
+    state.selectedPanelId = null; state.selectedPanelIds = []; state.selectedRailId = null;
+    renderAll();
+  } finally { applyingHistory = false; }
+  updateUndoRedo();
+}
+function undo() { if (HIST.index > 0) applyHistory(HIST.stack[--HIST.index]); }
+function redo() { if (HIST.index < HIST.stack.length - 1) applyHistory(HIST.stack[++HIST.index]); }
+
+function updateUndoRedo() {
+  const u = $('#btnUndo'), r = $('#btnRedo');
+  if (u) u.disabled = HIST.index <= 0;
+  if (r) r.disabled = HIST.index >= HIST.stack.length - 1;
+}
+function wireUndoRedo() {
+  $('#btnUndo').addEventListener('click', undo);
+  $('#btnRedo').addEventListener('click', redo);
+  window.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    const k = e.key.toLowerCase();
+    if (k !== 'z' && k !== 'y') return;
+    const a = document.activeElement;
+    if (a && /INPUT|TEXTAREA/.test(a.tagName)) return; // let fields do their own text undo
+    e.preventDefault();
+    if (k === 'y' || (k === 'z' && e.shiftKey)) redo(); else undo();
   });
 }
 
@@ -653,6 +707,9 @@ function projCard(p) {
 const num = (v, f = 0) => { const n = parseFloat(v); return Number.isFinite(n) ? n : f; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+
+// Start the app once every module-level definition above is initialized.
+boot();
 
 if ('serviceWorker' in navigator) {
   // Auto-update: when a freshly deployed service worker takes control, reload once

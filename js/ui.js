@@ -190,7 +190,10 @@ function featureRow(pn, f) {
     : t.shape === 'handle'
       ? `<label class="fnum" title="Standard pulls: ${HANDLE_SIZES.join('/')}″"><span>len</span>
           <input class="num" type="number" min="1" max="${round(d.hMax)}" step="1" list="handle-sizes" value="${f.len ?? t.len}" data-field="feat.len" ${dn}></label>`
-      : `${fnum('feat.w', f.w ?? t.w, dn, 'w', 0.0625, round(d.wBottom))}${fnum('feat.h', f.h ?? t.h, dn, 'h', 0.0625, round(d.hMax))}`;
+      : t.shape === 'spigot'
+        // spigot carries all four dimensions: width, height, length (depth), base (plate)
+        ? `${fnum('feat.w', f.w ?? t.w, dn, 'w', 0.0625, round(d.wBottom))}${fnum('feat.h', f.h ?? t.h, dn, 'h', 0.0625, round(d.hMax))}${fnum('feat.len', f.len ?? t.len, dn, 'len', 0.0625, 24)}${fnum('feat.base', f.base ?? t.base, dn, 'base', 0.0625, 12)}`
+        : `${fnum('feat.w', f.w ?? t.w, dn, 'w', 0.0625, round(d.wBottom))}${fnum('feat.h', f.h ?? t.h, dn, 'h', 0.0625, round(d.hMax))}`;
   return `<div class="feat-row" ${dn}>
     <span class="feat-tag">${t.short}</span>
     ${fnum('feat.fromLeft', round(c.fromLeft), dn, 'L', 0, round(d.wBottom))}
