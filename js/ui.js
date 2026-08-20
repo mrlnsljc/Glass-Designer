@@ -100,7 +100,7 @@ function railCard(r, i, selectedRailId) {
         <option value="glass" ${r.bracketStyle !== 'wall' ? 'selected' : ''}>Glass-mount</option>
         <option value="wall" ${r.bracketStyle === 'wall' ? 'selected' : ''}>Wall-mount</option>
       </select>
-      ${r.bracketStyle === 'wall' ? `<select class="gsel" data-railfield="bracketSide" ${dn} style="flex:0 0 auto;width:auto" title="Which side the wall arms project toward">
+      ${(r.brackets || 0) > 0 ? `<select class="gsel" data-railfield="bracketSide" ${dn} style="flex:0 0 auto;width:auto" title="Which side the brackets sit / project toward">
         <option value="left" ${r.bracketSide !== 'right' ? 'selected' : ''}>◀ side</option>
         <option value="right" ${r.bracketSide === 'right' ? 'selected' : ''}>side ▶</option>
       </select>` : ''}

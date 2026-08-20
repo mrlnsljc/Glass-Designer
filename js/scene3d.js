@@ -287,33 +287,54 @@ function buildRails() {
   }
 }
 
+// A straight metal tube between two points in the bracket's local frame.
+function tube(ax, ay, az, bx, by, bz, radius, mat) {
+  const A = new THREE.Vector3(ax, ay, az), B = new THREE.Vector3(bx, by, bz);
+  const d = B.clone().sub(A), L = d.length() || 0.001;
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, L, 10), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(_up, d.normalize());
+  return m;
+}
+
 // A single mounting bracket, built in a local frame (local +x runs along the rail,
 // local +z crosses it) placed at the rail centreline point (px,py,pz) and yawed to
-// match the run. Glass brackets clamp straight down onto the glass top edge; wall
+// match the run. Glass brackets are standoffs: a disc clamps the glass face below
+// the rail, then an arm reaches out and rises UP to the rail's underside. Wall
 // brackets throw a short arm out to a vertical wall plate on the chosen side.
 function makeBracket(r, px, py, pz, yaw, s, mat) {
   const grp = new THREE.Group();
   grp.position.set(px, py, pz);
   grp.rotation.y = yaw;
-  const under = -s / 2; // rail underside in local Y
+  const under = -s / 2;                                  // rail underside in local Y
+  const sign = r.bracketSide === 'right' ? 1 : -1;
 
   if (r.bracketStyle === 'wall') {
-    const reach = 3.5, sign = r.bracketSide === 'right' ? 1 : -1;
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, reach, 10), mat);
-    arm.rotation.x = Math.PI / 2;                 // cylinder axis → local Z (across the rail)
-    arm.position.set(0, 0, (sign * reach) / 2);
-    grp.add(arm);
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 0.7), mat);
-    plate.position.set(0, 0, sign * reach);
+    // Wall standoff: a plate on the wall (to the side, below the rail), an arm in
+    // toward the rail, then UP to the rail's underside — same "comes from the bottom"
+    // placement as the glass bracket.
+    const reach = 3.2;                                  // rail offset from the wall
+    const attachY = under - 2.6;                        // plate sits just below the rail underside
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3, 0.7), mat);
+    plate.position.set(0, attachY, sign * reach);       // flat against the wall
     grp.add(plate);
+    grp.add(tube(0, attachY, sign * reach, 0, attachY, 0, 0.5, mat)); // in from the wall
+    grp.add(tube(0, attachY, 0, 0, under, 0, 0.5, mat));              // up to the rail underside
+    const saddle = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, s + 1), mat);
+    saddle.position.set(0, under - 0.1, 0);             // seats against the bottom of the rail
+    grp.add(saddle);
   } else {
-    const drop = 2.6;
-    const conn = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, drop, 10), mat);
-    conn.position.set(0, under - drop / 2, 0);
-    grp.add(conn);
-    const clamp = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.8, 3.4), mat); // grips the glass top edge
-    clamp.position.set(0, under - drop, 0);
-    grp.add(clamp);
+    const out = 2.4;                                     // how far the arm projects off the glass face
+    const attachY = under - 3.6;                         // disc grips the glass a few inches below the rail
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.7, 16), mat);
+    disc.rotation.x = Math.PI / 2;                       // flat against the glass (axis → local Z)
+    disc.position.set(0, attachY, sign * 0.35);
+    grp.add(disc);
+    grp.add(tube(0, attachY, sign * 0.6, 0, attachY, sign * out, 0.5, mat)); // out from the glass
+    grp.add(tube(0, attachY, sign * out, 0, under, 0, 0.5, mat));            // up to the rail underside
+    const saddle = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, s + 1), mat);
+    saddle.position.set(0, under - 0.1, 0);              // seats against the bottom of the rail
+    grp.add(saddle);
   }
   return grp;
 }
