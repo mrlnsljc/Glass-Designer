@@ -54,6 +54,9 @@ export const makeRail = (over = {}) => ({
   profile: 'round',              // 'round' | 'square'
   size: 1.5,                     // tube diameter / side (in)
   posts: false,                  // drop vertical end posts to the ground
+  brackets: 0,                   // mounting brackets under the rail (0 = none; N spaced symmetrically)
+  bracketStyle: 'glass',         // 'glass' (clamp down to glass top) | 'wall' (side arm to a wall)
+  bracketSide: 'left',           // wall brackets project to this side of the rail ('left' | 'right')
   ...over,
 });
 

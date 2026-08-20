@@ -56,10 +56,11 @@ function railsSection(p, selectedRailId) {
   const rails = p.rails || [];
   const add = `<div class="add-bar">
       <button class="btn btn--primary btn--sm" data-act="drawRail" title="Click two points in the 3D view to draw a handrail">✎ Draw handrail</button>
+      ${(p.panels || []).length ? `<button class="btn btn--sm" data-act="railAllPanels" title="Lay a handrail on every panel that doesn't have one yet">⎯ Rail all panels</button>` : ''}
     </div>`;
   const list = rails.length
     ? `<div class="rail-list">${rails.map((r, i) => railCard(r, i, selectedRailId)).join('')}</div>`
-    : `<p class="empty-hint">No handrails yet. Click <b>Draw handrail</b> (or the <b>Rail</b> tool above the 3D view), then click a start point and an end point — it connects them with a rail. Endpoints snap to panel ends.</p>`;
+    : `<p class="empty-hint">No handrails yet. Fastest way: open a panel and hit <b>⎯ Rail</b> (or <b>Rail all panels</b> above) to drop a rail right on the glass. For a wall-side or free-standing rail, use <b>Draw handrail</b> and click a start + end point — it snaps onto nearby glass, or stands free at 42″ on open floor. Add <b>Brackets</b> on any rail to show how it mounts.</p>`;
   return section('rails', `Handrails${rails.length ? ` <span class="count">${rails.length}</span>` : ''}`, add + list, false);
 }
 
@@ -92,6 +93,17 @@ function railCard(r, i, selectedRailId) {
         <option value="square" ${r.profile === 'square' ? 'selected' : ''}>Square</option>
       </select>
       <label class="ch-tog ${r.posts ? 'on' : ''}" title="Drop vertical posts at each end"><input type="checkbox" tabindex="-1" data-railposts ${dn} ${r.posts ? 'checked' : ''}>End posts</label>
+    </div>
+    <div class="pc-channels">
+      ${field('rail.brackets', round(r.brackets || 0), r.id, 'Brackets', '', 0, 1, 'rail')}
+      <select class="gsel" data-railfield="bracketStyle" ${dn} style="flex:0 0 auto;width:auto" title="How the brackets mount">
+        <option value="glass" ${r.bracketStyle !== 'wall' ? 'selected' : ''}>Glass-mount</option>
+        <option value="wall" ${r.bracketStyle === 'wall' ? 'selected' : ''}>Wall-mount</option>
+      </select>
+      ${r.bracketStyle === 'wall' ? `<select class="gsel" data-railfield="bracketSide" ${dn} style="flex:0 0 auto;width:auto" title="Which side the wall arms project toward">
+        <option value="left" ${r.bracketSide !== 'right' ? 'selected' : ''}>◀ side</option>
+        <option value="right" ${r.bracketSide === 'right' ? 'selected' : ''}>side ▶</option>
+      </select>` : ''}
     </div>
   </div>`;
 }
@@ -171,6 +183,7 @@ function featuresBlock(pn) {
     <div class="feats-head">
       <span>Holes &amp; cut-outs${pn.features?.length ? ` · ${pn.features.length}` : ''}</span>
       <span class="feats-actions">
+        <button class="btn btn--xs" data-act="railThisPanel" data-panel="${pn.id}" title="Lay a handrail across this panel's top edge, at the right height">⎯ Rail</button>
         <button class="btn btn--xs" data-act="addSpigots3" data-panel="${pn.id}" title="Add 3 spigots: 6&quot; in from each end + one dead-centre">＋ 3 Spigots</button>
         <button class="btn btn--xs" data-act="addFeatureCenter" data-kind="hole" data-panel="${pn.id}" title="Add a hole at center">＋ Hole</button>
       </span>

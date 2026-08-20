@@ -15,7 +15,7 @@ import { controlsHTML, totalsHTML } from './ui.js';
 import { planSVG } from './planView.js';
 import { quote, money, panelCost, setUnitMode } from './pricing.js';
 import { makeFeature, featureType } from './features.js';
-import { panelDims } from './geometry.js';
+import { panelDims, panelEndpoints } from './geometry.js';
 import { allLibraries, saveCustomItem } from './hardware.js';
 import { downloadImage, printReport } from './exporter.js';
 import { openPolyEditor } from './polyEditor.js';
@@ -39,6 +39,7 @@ function boot() {
   scene.onRailCreate(onSceneRailCreate);
   scene.onRailEndpoint(onSceneRailEndpoint);
   scene.onRailMove(onSceneRailMove);
+  scene.onRailHint((t) => setHint(t == null ? HINTS.rail : t));
 
   wireHeader(); wireViewTools(); wireControls(); wireAccount(); wireUndoRedo();
 
@@ -103,6 +104,7 @@ function wireUndoRedo() {
   $('#btnUndo').addEventListener('click', undo);
   $('#btnRedo').addEventListener('click', redo);
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { if (scene.cancelRailDraw()) e.preventDefault(); return; }
     if (!(e.metaKey || e.ctrlKey)) return;
     const k = e.key.toLowerCase();
     if (k !== 'z' && k !== 'y') return;
@@ -209,8 +211,11 @@ function onControlInput(e) {
 
 function onControlChange(e) {
   const el = e.target;
-  if (el.dataset.railfield === 'profile') {
-    store.updateRail(el.dataset.rail, { profile: el.value }); renderScene();
+  if (el.dataset.railfield) {
+    store.updateRail(el.dataset.rail, { [el.dataset.railfield]: el.value });
+    // bracketStyle toggles which extra fields show (e.g. wall side) → rebuild the card
+    if (el.dataset.railfield === 'bracketStyle') renderControls();
+    renderScene();
     return;
   }
   if (el.dataset.railposts !== undefined) {
@@ -326,6 +331,8 @@ function onControlClick(e) {
       renderControls(); renderScene();
       break;
     case 'drawRail': setTool('rail'); break;
+    case 'railThisPanel': railThisPanel(id); break;
+    case 'railAllPanels': railAllPanels(); break;
     case 'removeRail': store.removeRail(railId); renderControls(); renderScene(); break;
     case 'selectRail':
       if (e.target.closest('input,select,button,textarea')) return;
@@ -360,6 +367,35 @@ function onSceneRailCreate(ax, az, bx, bz, topA, topB) {
   renderControls(); renderScene();
   railCardFor(state.selectedRailId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
+// One-click: lay a handrail across a panel's TOP run, at its top height, following
+// any stair rise. Endpoint A = the panel's left end, B = its right end.
+function railSpecForPanel(p) {
+  const e = panelEndpoints(p), d = panelDims(p), baseY = p.y || 0;
+  const hA = baseY + d.hLeft, hB = baseY + d.baseRise + d.hRight;
+  return { ax: round(e.ax), az: round(e.az), bx: round(e.bx), bz: round(e.bz), height: round(hA), rise: round(hB - hA) };
+}
+// True when a rail already lies on this panel's run (either direction) — keeps
+// "Rail all" / repeat clicks idempotent, like the spigot helper.
+function railOnRun(spec) {
+  const near = (x1, z1, x2, z2) => Math.hypot(x1 - x2, z1 - z2) < 2;
+  return (state.project.rails || []).some((r) =>
+    (near(r.ax, r.az, spec.ax, spec.az) && near(r.bx, r.bz, spec.bx, spec.bz)) ||
+    (near(r.ax, r.az, spec.bx, spec.bz) && near(r.bx, r.bz, spec.ax, spec.az)));
+}
+function railThisPanel(panelId) {
+  const p = store.findPanel(panelId); if (!p) return;
+  store.addRail(railSpecForPanel(p));
+  renderControls(); renderScene();
+  railCardFor(state.selectedRailId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function railAllPanels() {
+  for (const p of state.project.panels) {
+    const spec = railSpecForPanel(p);
+    if (!railOnRun(spec)) store.addRail(spec);
+  }
+  renderControls(); renderScene();
+}
+
 function onSceneRailSelect(railId) { selectRail(railId); }
 function setRailCardFields(railId, vals) {
   const card = railCardFor(railId); if (!card) return;

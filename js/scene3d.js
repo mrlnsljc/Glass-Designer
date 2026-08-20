@@ -35,7 +35,7 @@ let mode = 'iso', tool = 'move', stampKind = 'hole', snap = true, showLabels = t
 let needsRender = true, raf = 0;
 let project = null;
 let selectCb = null, transformCb = null, stampCb = null, featureMoveCb = null, featureSelectCb = null;
-let railSelectCb = null, railCreateCb = null, railEndpointCb = null, railMoveCb = null;
+let railSelectCb = null, railCreateCb = null, railEndpointCb = null, railMoveCb = null, railHintCb = null;
 let draggingId = null, selectedId = null, selectedFeatureId = null;
 let selectedIds = [], multiIds = [], pivot;
 const pivotLast = new THREE.Vector3();
@@ -253,6 +253,21 @@ function buildRails() {
       }
     }
 
+    // Mounting brackets: N spaced symmetrically along the run (inset from each end),
+    // clamping down to the glass ('glass') or arming out to a wall ('wall').
+    const nB = Math.max(0, Math.round(r.brackets || 0));
+    if (nB > 0) {
+      const inset = Math.min(4, L * 0.2);
+      const yaw = Math.atan2(-(r.bz - r.az), (r.bx - r.ax)); // local +x → along the rail
+      for (let i = 0; i < nB; i++) {
+        const t = nB === 1 ? 0.5 : (inset + (L - 2 * inset) * (i / (nB - 1))) / L;
+        const px = r.ax + (r.bx - r.ax) * t;
+        const pz = r.az + (r.bz - r.az) * t;
+        const py = hA + (hB - hA) * t;
+        railGroup.add(makeBracket(r, px, py, pz, yaw, s, mat));
+      }
+    }
+
     // fat transparent hit cylinder for easy clicking
     const hit = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(s, 3), Math.max(s, 3), L, 8), hitMat);
     hit.position.copy(mid); hit.quaternion.copy(quat);
@@ -272,13 +287,45 @@ function buildRails() {
   }
 }
 
+// A single mounting bracket, built in a local frame (local +x runs along the rail,
+// local +z crosses it) placed at the rail centreline point (px,py,pz) and yawed to
+// match the run. Glass brackets clamp straight down onto the glass top edge; wall
+// brackets throw a short arm out to a vertical wall plate on the chosen side.
+function makeBracket(r, px, py, pz, yaw, s, mat) {
+  const grp = new THREE.Group();
+  grp.position.set(px, py, pz);
+  grp.rotation.y = yaw;
+  const under = -s / 2; // rail underside in local Y
+
+  if (r.bracketStyle === 'wall') {
+    const reach = 3.5, sign = r.bracketSide === 'right' ? 1 : -1;
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, reach, 10), mat);
+    arm.rotation.x = Math.PI / 2;                 // cylinder axis → local Z (across the rail)
+    arm.position.set(0, 0, (sign * reach) / 2);
+    grp.add(arm);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 0.7), mat);
+    plate.position.set(0, 0, sign * reach);
+    grp.add(plate);
+  } else {
+    const drop = 2.6;
+    const conn = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, drop, 10), mat);
+    conn.position.set(0, under - drop / 2, 0);
+    grp.add(conn);
+    const clamp = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.8, 3.4), mat); // grips the glass top edge
+    clamp.position.set(0, under - drop, 0);
+    grp.add(clamp);
+  }
+  return grp;
+}
+
 // Raw ground point under the cursor (no snapping).
 function rawGround() {
   if (!raycaster.ray.intersectPlane(groundPlane, _hitPt)) return null;
   return { x: _hitPt.x, z: _hitPt.z };
 }
 
-const SNAP_R = 12; // handrails "prefer" panels within this radius (in), but aren't confined
+const SNAP_R = 18; // handrails "prefer" panels within this radius (in), but aren't confined
+const DRAW_H = 42; // fallback rail height when a point lands on open floor (free-standing / wall rail)
 function closestOnSeg(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz || 1;
   let t = ((px - ax) * dx + (pz - az) * dz) / len2;
@@ -320,16 +367,30 @@ function updateRailPreview() {
       new THREE.LineDashedMaterial({ color: 0x2563eb, dashSize: 4, gapSize: 3 }));
     scene.add(railPreview);
   }
-  const h = 42;
+  // Draw the preview at the height the rail will actually sit at: the snapped glass
+  // top under each end, falling back to a standing handrail height on open floor.
+  const hA = railPending.top != null ? railPending.top : DRAW_H;
+  const hB = g.top != null ? g.top : (railPending.top != null ? railPending.top : DRAW_H);
   railPreview.visible = true;
-  railPreview.geometry.setFromPoints([new THREE.Vector3(railPending.x, h, railPending.z), new THREE.Vector3(g.x, h, g.z)]);
+  railPreview.geometry.setFromPoints([new THREE.Vector3(railPending.x, hA, railPending.z), new THREE.Vector3(g.x, hB, g.z)]);
   railPreview.computeLineDistances();
+  const run = Math.hypot(g.x - railPending.x, g.z - railPending.z);
+  const onGlass = railPending.top != null || g.top != null;
+  railHintCb?.(`Handrail ${(run / 12).toFixed(2)} ft · ${Math.round((hA + hB) / 2)}" high${onGlass ? ' · on glass' : ' · free-standing'} — click to finish · Esc to cancel`);
   needsRender = true;
 }
 
 function clearRailPending() {
   railPending = null;
   if (railPreview) { railPreview.visible = false; needsRender = true; }
+  railHintCb?.(null); // restore the tool's base hint
+}
+
+// Abort a half-drawn rail (Esc). Returns true if there was one pending.
+export function cancelRailDraw() {
+  if (!railPending) return false;
+  clearRailPending();
+  return true;
 }
 
 const signature = (p, o, i) =>
@@ -748,6 +809,7 @@ export function onRailSelect(cb) { railSelectCb = cb; }
 export function onRailCreate(cb) { railCreateCb = cb; }
 export function onRailEndpoint(cb) { railEndpointCb = cb; }
 export function onRailMove(cb) { railMoveCb = cb; }
+export function onRailHint(cb) { railHintCb = cb; }
 
 /** Highlight a handrail (or null). Rebuilds the rail group so the colour swaps. */
 export function selectRail(id) { selectedRailId = id || null; buildRails(); needsRender = true; }
